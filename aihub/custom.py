@@ -101,7 +101,8 @@ def get(cfg: dict, pid: str) -> dict | None:
 
 
 def unique_id(cfg: dict, preset_id: str) -> str:
-    taken = {item["id"] for item in records(cfg)} | set(catalog.PROVIDER_BY_ID)
+    base_ids = {item["id"] for item in catalog.PROVIDERS if not item.get("custom")}
+    taken = base_ids | {item["id"] for item in records(cfg)}
     candidate, number = preset_id, 2
     while candidate in taken:
         candidate = f"{preset_id}-{number}"

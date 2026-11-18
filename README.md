@@ -82,6 +82,22 @@ Requisitos: Python 3.10+ con Tkinter (`brew install python-tk`). Los proyectos s
 `~/Proyectos` y la configuración se guarda en `~/Library/Application Support/AIHub`.
 Más detalles en **`LEEME-MAC.md`**.
 
+## Versión web (navegador, multiusuario)
+
+Además de la app de escritorio hay una versión web que se abre en el navegador y
+permite que **varias personas** (por ejemplo, tu familia) usen AI Hub cada una
+con su cuenta, sus claves, sus modelos y sus proyectos:
+
+- Lanzador: **`Iniciar_Web.vbs`** (o `python -m aihub.web run`).
+- Abre http://127.0.0.1:8765 y crea la primera cuenta de administrador.
+- El administrador crea cuentas en **Ajustes → Usuarios de la familia**.
+- Para publicarla en tu dominio (marinweb.org) con Cloudflare Tunnel, sigue
+  **`WEB.md`**.
+
+La versión web conserva las mismas funciones: catálogo de modelos, chat con
+herramientas sobre tus archivos, generación de imágenes y vídeos, consumo por
+modelo y ajustes. OpenCode y Claude Code usan los CLI instalados en el servidor.
+
 ## Proyecto de trabajo
 
 Al abrir la app pregunta **en qué proyecto vas a trabajar**. Cada proyecto es una carpeta dentro de
@@ -213,7 +229,9 @@ La app vive en `C:\Proyectos\AI_HUB` (los proyectos se guardan dentro de `C:\Pro
 C:\Proyectos\AI_HUB\
 ├─ AIHub.pyw                  punto de entrada (--selftest, --smoke, --commands)
 ├─ Iniciar AI Hub.vbs         lanzador sin consola
+├─ Iniciar_Web.vbs            lanzador de la versión web sin consola
 ├─ run.bat                    lanzador con consola (para ver errores)
+├─ Iniciar_Web.bat            lanzador web con consola
 ├─ Crear acceso directo.bat   crea el acceso directo del escritorio
 ├─ crear_acceso_directo.ps1   lógica del acceso directo
 ├─ assets/AIHub.ico           icono
@@ -223,10 +241,16 @@ C:\Proyectos\AI_HUB\
 │  ├─ local.py                detección y ejecución de opencode / claude / ollama
 │  ├─ catalog.py              modelos, precios, orden y caché
 │  ├─ projects.py             lista y creación de proyectos (C:\Proyectos)
-│  └─ ui.py                   interfaz Tkinter
+│  ├─ ui.py                   interfaz Tkinter (escritorio)
+│  └─ web/                    versión web multiusuario (servidor + frontend)
+│     ├─ users.py             cuentas, sesiones y carpetas por usuario
+│     ├─ server.py            API HTTP y SSE
+│     └─ static/              HTML, CSS y JavaScript
 └─ tools/make_icon.py         regenera el icono
    LEEME-MAC.md                instrucciones para macOS
    Iniciar_AI_Hub.command      lanzador para macOS/Linux
+   Iniciar_Web.command         lanzador web para macOS/Linux
+   WEB.md                      publicar la versión web en marinweb.org
 ```
 
 El agente usa `aihub/agent.py` (listar, leer, escribir y reemplazar dentro del proyecto).

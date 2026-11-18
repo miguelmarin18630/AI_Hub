@@ -6,6 +6,7 @@ Windows %APPDATA%\\AIHub · macOS ~/Library/Application Support/AIHub.
 
 from __future__ import annotations
 
+import contextvars
 import json
 import os
 import sys
@@ -30,6 +31,30 @@ def _app_dir() -> Path:
 APP_DIR = _app_dir()
 CONFIG_PATH = APP_DIR / "config.json"
 CACHE_PATH = APP_DIR / "cache.json"
+
+# Carpeta de datos activa. La app de escritorio usa APP_DIR; el servidor web
+# cambia esta variable por la carpeta de cada usuario antes de atender su
+# petición, de modo que claves, caché y consumo quedan aislados por cuenta.
+_ACTIVE_DIR: contextvars.ContextVar[Path | None] = contextvars.ContextVar(
+    "aihub_app_dir", default=None
+)
+
+
+def set_app_dir(path: str | Path | None) -> None:
+    """Activa una carpeta de datos (por usuario) o vuelve a la de escritorio."""
+    _ACTIVE_DIR.set(Path(path) if path else None)
+
+
+def app_dir() -> Path:
+    return _ACTIVE_DIR.get() or APP_DIR
+
+
+def config_path() -> Path:
+    return app_dir() / "config.json"
+
+
+def cache_path() -> Path:
+    return app_dir() / "cache.json"
 
 
 def _default_workdir() -> str:
@@ -72,7 +97,7 @@ DEFAULTS = {
 
 
 def ensure_dirs() -> None:
-    APP_DIR.mkdir(parents=True, exist_ok=True)
+    app_dir().mkdir(parents=True, exist_ok=True)
     try:
         Path(load_config()["output_root"]).mkdir(parents=True, exist_ok=True)
     except Exception:
@@ -82,7 +107,7 @@ def ensure_dirs() -> None:
 def load_config() -> dict:
     data = dict(DEFAULTS)
     try:
-        raw = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        raw = json.loads(config_path().read_text(encoding="utf-8"))
         if isinstance(raw, dict):
             data.update(raw)
     except Exception:
@@ -93,10 +118,11 @@ def load_config() -> dict:
 
 
 def save_config(cfg: dict) -> None:
-    APP_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = CONFIG_PATH.with_suffix(".tmp")
+    base = app_dir()
+    base.mkdir(parents=True, exist_ok=True)
+    tmp = config_path().with_suffix(".tmp")
     tmp.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(CONFIG_PATH)
+    tmp.replace(config_path())
 
 
 def update_config(**changes) -> dict:
@@ -107,12 +133,18 @@ def update_config(**changes) -> dict:
     return data
 
 
-def openrouter_key(cfg: dict | None = None) -> str:
-    """Clave de OpenRouter: la guardada en Ajustes o, si no hay, la del sistema."""
+def openrouter_key(cfg: dict | None = None, allow_env: bool = True) -> str:
+    """Clave de OpenRouter: la guardada en Ajustes o, si no hay, la del sistema.
+
+    En la versión web se usa ``allow_env=False`` para que cada cuenta use solo su
+    propia clave y no se comparta la variable de entorno del servidor.
+    """
     cfg = cfg if cfg is not None else load_config()
     stored = str(cfg.get("openrouter_api_key") or "").strip()
     if stored:
         return stored
+    if not allow_env:
+        return ""
     return os.environ.get("OPENROUTER_API_KEY", "").strip()
 
 

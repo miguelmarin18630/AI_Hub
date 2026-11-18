@@ -352,7 +352,7 @@ class MainWindow(tk.Tk):
         title.pack(anchor="w")
         sub = tk.Label(
             text,
-            text="Chat con modelos de IA · gratis primero",
+            text="Chat con modelos de IA",
             bg=PANEL,
             fg=MUTED,
             font=(FONT, 9),

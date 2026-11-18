@@ -275,7 +275,7 @@ class Model:
 # ---------------------------------------------------------------------------
 
 _cache_lock = threading.Lock()
-_cache_data: dict | None = None
+_cache_data: dict[str, dict] = {}
 
 
 def _empty_cache() -> dict:
@@ -284,7 +284,7 @@ def _empty_cache() -> dict:
 
 def _read_cache() -> dict:
     try:
-        raw = json.loads(config.CACHE_PATH.read_text(encoding="utf-8"))
+        raw = json.loads(config.cache_path().read_text(encoding="utf-8"))
         if isinstance(raw, dict) and raw.get("version") == CACHE_VERSION:
             raw.setdefault("providers", {})
             raw.setdefault("image_prices", {})
@@ -295,19 +295,19 @@ def _read_cache() -> dict:
 
 
 def cache() -> dict:
-    global _cache_data
+    key = str(config.cache_path())
     with _cache_lock:
-        if _cache_data is None:
-            _cache_data = _read_cache()
-        return _cache_data
+        if key not in _cache_data:
+            _cache_data[key] = _read_cache()
+        return _cache_data[key]
 
 
 def _write_cache(data: dict) -> None:
     try:
-        config.APP_DIR.mkdir(parents=True, exist_ok=True)
-        tmp = config.CACHE_PATH.with_suffix(".tmp")
+        config.app_dir().mkdir(parents=True, exist_ok=True)
+        tmp = config.cache_path().with_suffix(".tmp")
         tmp.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-        tmp.replace(config.CACHE_PATH)
+        tmp.replace(config.cache_path())
     except Exception:
         pass
 
@@ -919,7 +919,7 @@ def relevance_score(model: Model) -> float:
 
 
 def sort_models(models: list[Model], mode: str = "price") -> list[Model]:
-    """Ordena: gratis primero (por relevancia) y luego el pago más barato."""
+    """Ordena: primero los gratuitos por relevancia y luego los de pago más baratos."""
     ordered = list(models)
 
     if mode == "name":

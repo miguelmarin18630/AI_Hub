@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Hub · chat con modelos de IA</title>
+  <meta name="description" content="Chat con modelos de IA gratuitos y baratos: OpenCode, Claude Code, Ollama y OpenRouter.">
+  <link rel="icon" href="/favicon.ico" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/styles.css?v=1">
+</head>
+<body>
+  <div id="app" hidden>
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo">＋</span>
+        <div class="brand-text">
+          <strong>AI HUB</strong>
+          <small>Chat con modelos de IA</small>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button id="btn-project" class="chip" title="Elegir proyecto">Proyecto</button>
+        <button id="btn-refresh" class="btn ghost">⟳ Actualizar</button>
+        <button id="btn-settings" class="btn ghost">⚙ Ajustes</button>
+        <button id="btn-admin" class="btn ghost" hidden>Usuarios</button>
+        <button id="btn-user" class="chip" title="Tu cuenta">·</button>
+        <button id="btn-logout" class="btn ghost">Salir</button>
+      </div>
+    </header>
+
+    <div class="layout" id="layout">
+      <aside class="side-rail" id="rail-open" title="Mostrar modelos">
+        <span class="rail-arrow">▶</span>
+        <span class="rail-text">M O D E L O S</span>
+      </aside>
+
+      <aside id="sidebar">
+        <div class="side-head">
+          <span class="side-title">PROVEEDOR</span>
+          <button id="btn-collapse" class="icon-btn" title="Ocultar panel">◀</button>
+        </div>
+        <div id="provider-list" class="provider-list"></div>
+
+        <div class="tabs" id="tabs">
+          <button class="tab" data-category="code">Programación</button>
+          <button class="tab" data-category="media">Imagen y vídeo</button>
+        </div>
+
+        <div class="toolbar">
+          <div class="search-box">
+            <span class="search-icon">⌕</span>
+            <input id="search" type="search" placeholder="Buscar modelo…" autocomplete="off">
+          </div>
+          <select id="filter" class="select" title="Filtrar">
+            <option value="all">Todos</option>
+            <option value="free">Gratis</option>
+            <option value="paid">De pago</option>
+          </select>
+          <select id="sort" class="select" title="Ordenar">
+            <option value="price-asc">Precio ↑</option>
+            <option value="price-desc">Precio ↓</option>
+            <option value="name">Nombre</option>
+            <option value="context">Contexto ↓</option>
+          </select>
+        </div>
+
+        <div id="model-list" class="model-list"></div>
+
+        <div class="legend">
+          <span>Gratis primero · Enter para usar</span>
+          <span id="model-count"></span>
+        </div>
+      </aside>
+
+      <main id="center">
+        <div class="conv-head">
+          <div class="conv-titles">
+            <strong id="conv-title">Elige un modelo</strong>
+            <small id="conv-sub">Selecciona un modelo en la columna izquierda</small>
+          </div>
+          <button id="btn-clear" class="btn ghost small">＋ Nuevo chat</button>
+        </div>
+
+        <div id="messages" class="messages"></div>
+
+        <div id="composer" class="composer">
+          <textarea id="prompt" rows="2" placeholder="Escribe tu mensaje… (Enter para enviar, Shift+Enter para salto de línea)"></textarea>
+          <div class="composer-row">
+            <label class="check" id="tools-label" title="El modelo podrá leer y escribir en tu proyecto">
+              <input type="checkbox" id="use-tools">
+              <span>Acceso a archivos del proyecto</span>
+            </label>
+            <span id="chat-status" class="status"></span>
+            <button id="btn-send" class="btn primary">Enviar</button>
+            <button id="btn-stop" class="btn danger" hidden>Detener</button>
+          </div>
+        </div>
+
+        <div id="generator" class="generator" hidden>
+          <div class="gen-head">
+            <strong id="gen-title">Generar</strong>
+            <small id="gen-model"></small>
+          </div>
+          <textarea id="gen-prompt" rows="3" placeholder="Describe lo que quieres generar…"></textarea>
+          <div class="gen-row">
+            <label>Relación
+              <select id="gen-aspect" class="select">
+                <option value="">Automática</option>
+                <option value="1:1">1:1</option>
+                <option value="4:3">4:3</option>
+                <option value="3:4">3:4</option>
+                <option value="16:9">16:9</option>
+                <option value="9:16">9:16</option>
+              </select>
+            </label>
+            <label id="gen-duration-wrap" hidden>Duración
+              <select id="gen-duration" class="select">
+                <option value="">Automática</option>
+                <option value="4">4 s</option>
+                <option value="6">6 s</option>
+                <option value="8">8 s</option>
+              </select>
+            </label>
+            <label id="gen-resolution-wrap" hidden>Resolución
+              <select id="gen-resolution" class="select">
+                <option value="">Automática</option>
+                <option value="360p">360p</option>
+                <option value="480p">480p</option>
+                <option value="720p">720p</option>
+                <option value="1080p">1080p</option>
+              </select>
+            </label>
+            <button id="btn-generate" class="btn primary">Generar</button>
+            <button id="btn-gen-cancel" class="btn danger" hidden>Cancelar</button>
+          </div>
+          <div id="gen-result" class="gen-result"></div>
+        </div>
+      </main>
+
+      <aside id="detail">
+        <section class="detail-card" id="model-detail">
+          <small class="empty">Elige un modelo para ver su precio y detalles.</small>
+        </section>
+        <section class="detail-card">
+          <h3>CONSUMO</h3>
+          <p id="usage-text" class="usage">Elige un modelo para ver su consumo.</p>
+          <p id="quota-text" class="usage-dim"></p>
+        </section>
+        <section class="detail-card files-card">
+          <div class="files-head">
+            <h3>ARCHIVOS DEL PROYECTO</h3>
+            <button id="btn-file-up" class="icon-btn" title="Carpeta superior" hidden>↑</button>
+          </div>
+          <small id="files-project" class="usage-dim"></small>
+          <div id="file-list" class="file-list"></div>
+        </section>
+      </aside>
+    </div>
+  </div>
+
+  <div id="login-screen" class="center-screen" hidden>
+    <div class="card login-card">
+      <div class="login-brand">
+        <span class="logo">＋</span>
+        <div>
+          <h1>AI HUB</h1>
+          <p>Chat con modelos de IA</p>
+        </div>
+      </div>
+
+      <form id="setup-view" hidden>
+        <p class="login-note">Primera vez: crea la cuenta de administrador.</p>
+        <label>Nombre
+          <input id="setup-name" type="text" value="admin" autocomplete="username">
+        </label>
+        <label>Contraseña
+          <input id="setup-password" type="password" autocomplete="new-password">
+        </label>
+        <button class="btn primary block" type="submit">Crear administrador</button>
+      </form>
+
+      <form id="login-view" hidden>
+        <label>Usuario
+          <input id="login-name" type="text" autocomplete="username">
+        </label>
+        <label>Contraseña
+          <input id="login-password" type="password" autocomplete="current-password">
+        </label>
+        <button class="btn primary block" type="submit">Entrar</button>
+      </form>
+
+      <p id="login-error" class="error" hidden></p>
+    </div>
+  </div>
+
+  <div id="modal-root"></div>
+  <div id="toast-root"></div>
+
+  <script src="/static/app.js?v=1"></script>
+</body>
+</html>
