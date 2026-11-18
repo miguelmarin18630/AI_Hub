@@ -61,6 +61,19 @@ def _error_message(exc: urllib.error.HTTPError) -> str:
     # (rate limit) o falta de saldo/créditos. Distinguirlas evita mensajes
     # confusos como "espera unos segundos" cuando en realidad no hay crédito.
     low = str(message or "").lower()
+    # OpenRouter: los modelos ":free" son gratis, pero hay un tope diario de
+    # peticiones gratis (50/día con <10 $ de saldo; 1000/día con >=10 $).
+    if exc.code == 429 and (
+        "free-models-per-day" in low
+        or "free model requests per day" in low
+        or ("free" in low and "per day" in low and "rate limit" in low)
+    ):
+        return (
+            "Has agotado el límite diario de peticiones a modelos gratuitos de "
+            "OpenRouter (el modelo es gratis, pero las peticiones están topadas). "
+            "Se renueva mañana; o añade 10 $ de saldo para desbloquear 1000 "
+            f"peticiones gratis al día. (HTTP {exc.code}: {str(message)[:220]})"
+        )
     no_credits = any(
         word in low
         for word in (
