@@ -164,6 +164,8 @@ label > input, label > select { margin-top: 4px; }
   flex-wrap: wrap;
   gap: 6px;
   padding-bottom: 2px;
+  max-height: 132px;
+  overflow-y: auto;
 }
 .provider-pill {
   flex: 0 0 auto;
