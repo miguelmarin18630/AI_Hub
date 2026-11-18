@@ -183,6 +183,13 @@ async function startApp() {
   bindEvents();
   await loadCatalog();
   await loadFiles();
+  restoreConversation();
+  const savedProject = localStorage.getItem("aihub.project");
+  if (savedProject && (state.projects || []).some((item) => item.id === savedProject)) {
+    state.project = savedProject;
+    renderProjectChip();
+    await loadFiles();
+  }
 }
 
 function savePrefs() {
@@ -492,10 +499,27 @@ function addMessage(kind, text) {
   return item;
 }
 
-function clearChat() {
-  state.messages = [];
+function saveConversation() {
+  try {
+    localStorage.setItem("aihub.conversation", JSON.stringify(state.messages || []));
+  } catch (exc) {
+    /* ignore */
+  }
+}
+
+function restoreConversation() {
+  let messages = [];
+  try {
+    messages = JSON.parse(localStorage.getItem("aihub.conversation") || "[]");
+  } catch {
+    messages = [];
+  }
+  if (!Array.isArray(messages) || !messages.length) return;
+  state.messages = messages.filter((item) => item && (item.role === "user" || item.role === "assistant") && typeof item.content === "string");
   $("messages").innerHTML = "";
-  addMessage("system", "Nuevo chat. Elige un modelo si aún no lo has hecho.");
+  for (const item of state.messages) {
+    addMessage(item.role, item.content);
+  }
 }
 
 async function sendChat() {
@@ -593,6 +617,7 @@ async function sendChat() {
     state.controller = null;
     $("btn-send").disabled = false;
     $("btn-stop").hidden = true;
+    saveConversation();
   }
 }
 
@@ -696,6 +721,7 @@ async function chooseProject(id) {
     const data = await api("/api/project/select", { method: "POST", body: { name: id } });
     state.project = id;
     state.filePath = "";
+    localStorage.setItem("aihub.project", id);
     await loadCatalog();
     await loadFiles();
     toast(data.workdir ? `Proyecto: ${data.name}` : "Sin proyecto.", "ok");
