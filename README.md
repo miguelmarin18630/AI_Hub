@@ -57,7 +57,9 @@ La pantalla funciona como el espacio de chat de un proveedor de IA. Tiene tres c
    cada pestaña muestra solo los proveedores que tienen modelos en ella. Después elige el proveedor y el
    modelo de la lista. La lista muestra
    **primero los gratuitos** y después los de pago **de menor a mayor precio**. Con «Precio ↓» se
-   invierte el orden.
+   invierte el orden. La columna tiene **ancho fijo** y las tarjetas de proveedor tienen **scroll**, así
+   que añadir proveedores no reduce la conversación; el botón **◀** la pliega a una franja lateral y
+   **▶** la vuelve a mostrar.
 2. **Conversación** (centro, la parte principal) → cabecera con el modelo activo y su acceso a
    archivos, el hilo de mensajes y el **compositor**: escribe y pulsa **Enter** para enviar
    (**Shift+Enter** para salto de línea). «Nuevo chat» empieza una conversación limpia.

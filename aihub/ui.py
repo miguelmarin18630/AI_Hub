@@ -398,29 +398,120 @@ class MainWindow(tk.Tk):
         body = tk.Frame(self, bg=BG)
         body.grid(row=1, column=0, sticky="nsew")
         body.rowconfigure(0, weight=1)
-        body.columnconfigure(0, minsize=320, weight=0)
+        body.columnconfigure(0, weight=0)
         body.columnconfigure(1, minsize=520, weight=1)
         body.columnconfigure(2, minsize=270, weight=0)
         self.rowconfigure(1, weight=1)
         self.columnconfigure(0, weight=1)
+        self._body = body
 
-        self._build_sidebar(body)  # proveedor y catálogo de modelos
+        # Columna izquierda de ancho fijo: al añadir proveedores no crece ni
+        # empuja a la conversación. `grid_propagate(False)` impide que el
+        # contenido (tarjetas, nombres largos) dicte el ancho de la columna.
+        self.sidebar_width = 350
+        self.sidebar_collapsed = False
+        self.sidebar_holder = tk.Frame(body, bg=BG, width=self.sidebar_width)
+        self.sidebar_holder.grid(row=0, column=0, sticky="nsew")
+        self.sidebar_holder.grid_propagate(False)
+        self.sidebar_holder.rowconfigure(0, weight=1)
+        self.sidebar_holder.columnconfigure(0, weight=1)
+
+        # Rail estrecho que queda visible cuando la columna está plegada.
+        self.sidebar_rail = tk.Frame(body, bg=BG, width=38, cursor="hand2")
+        self.sidebar_rail.grid(row=0, column=0, sticky="ns")
+        self.sidebar_rail.grid_propagate(False)
+        self.sidebar_rail.pack_propagate(False)
+        rail_open = tk.Label(
+            self.sidebar_rail,
+            text="▶",
+            bg=PANEL,
+            fg=ACCENT,
+            font=(FONT, 10, "bold"),
+            cursor="hand2",
+        )
+        rail_open.pack(fill="x", pady=(14, 8))
+        rail_label = tk.Label(
+            self.sidebar_rail,
+            text="\n".join("MODELOS"),
+            bg=BG,
+            fg=DIM,
+            font=(FONT, 8, "bold"),
+            cursor="hand2",
+        )
+        rail_label.pack()
+        _bind_recursive(self.sidebar_rail, lambda: self._toggle_sidebar(False))
+        self.sidebar_rail.grid_remove()
+
+        self._build_sidebar(self.sidebar_holder)  # proveedor y catálogo de modelos
         self._build_center(body)   # conversación: el panel principal
         self._build_detail(body)   # ficha del modelo, acciones y archivos
+
+    def _toggle_sidebar(self, collapse: bool | None = None) -> None:
+        """Pliega o despliega la columna de proveedores y modelos."""
+        if collapse is None:
+            collapse = not self.sidebar_collapsed
+        self.sidebar_collapsed = bool(collapse)
+        if self.sidebar_collapsed:
+            self.sidebar_holder.grid_remove()
+            self.sidebar_rail.grid()
+        else:
+            self.sidebar_rail.grid_remove()
+            self.sidebar_holder.grid()
 
     def _build_sidebar(self, parent: tk.Misc) -> None:
         side = tk.Frame(parent, bg=BG, padx=12, pady=12)
         side.grid(row=0, column=0, sticky="nsew")
+        parent.rowconfigure(0, weight=1)
+        parent.columnconfigure(0, weight=1)
         side.columnconfigure(0, weight=1)
         side.rowconfigure(5, weight=1)
 
-        tk.Label(side, text="PROVEEDOR", bg=BG, fg=DIM, font=(FONT, 8, "bold")).grid(
-            row=0, column=0, sticky="w", pady=(0, 6)
+        head = tk.Frame(side, bg=BG)
+        head.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        head.columnconfigure(0, weight=1)
+        tk.Label(head, text="PROVEEDOR", bg=BG, fg=DIM, font=(FONT, 8, "bold")).grid(
+            row=0, column=0, sticky="w"
         )
+        collapse = tk.Label(
+            head,
+            text="◀",
+            bg=BG,
+            fg=DIM,
+            font=(FONT, 9, "bold"),
+            cursor="hand2",
+            padx=4,
+        )
+        collapse.grid(row=0, column=1, sticky="e")
+        collapse.bind("<Button-1>", lambda _e: self._toggle_sidebar(True))
+        collapse.bind("<Enter>", lambda _e: collapse.configure(fg=TEXT))
+        collapse.bind("<Leave>", lambda _e: collapse.configure(fg=DIM))
 
-        grid = tk.Frame(side, bg=BG)
-        grid.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        # Tarjetas de proveedor en una zona desplazable con altura limitada:
+        # añadir proveedores hace scroll, no crece la columna.
+        cards_wrap = tk.Frame(side, bg=BG, height=96)
+        cards_wrap.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        cards_wrap.grid_propagate(False)
+        cards_wrap.columnconfigure(0, weight=1)
+        cards_wrap.rowconfigure(0, weight=1)
+        self.cards_wrap = cards_wrap
+
+        self.cards_canvas = tk.Canvas(
+            cards_wrap, bg=BG, highlightthickness=0, bd=0, height=96
+        )
+        self.cards_canvas.grid(row=0, column=0, sticky="nsew")
+        self.cards_scroll = ttk.Scrollbar(
+            cards_wrap,
+            orient="vertical",
+            command=self.cards_canvas.yview,
+            style="AIH.Vertical.TScrollbar",
+        )
+        self.cards_canvas.configure(yscrollcommand=self.cards_scroll.set)
+
+        grid = tk.Frame(self.cards_canvas, bg=BG)
         grid.columnconfigure(0, weight=1)
+        self.cards_window = self.cards_canvas.create_window((0, 0), window=grid, anchor="nw")
+        self.cards_canvas.bind("<Configure>", self._on_cards_canvas_configure)
+        grid.bind("<Configure>", lambda _e: self._sync_cards_size())
 
         self.card_grid = grid
         self._render_provider_cards()
@@ -615,6 +706,38 @@ class MainWindow(tk.Tk):
         tk.Label(add, text="＋  Añadir proveedor", bg=BG, fg=ACCENT, font=(FONT, 9, "bold")).pack(anchor="w")
         _bind_recursive(add, self._open_add_provider)
         self._update_cards()
+        self.after_idle(self._sync_cards_size)
+
+    def _on_cards_canvas_configure(self, event) -> None:
+        self.cards_canvas.itemconfigure(self.cards_window, width=event.width)
+        self.cards_canvas.configure(scrollregion=self.cards_canvas.bbox("all") or (0, 0, 0, 0))
+
+    def _sync_cards_size(self) -> None:
+        """Ajusta la altura de la lista de proveedores y su scrollbar."""
+        grid = getattr(self, "card_grid", None)
+        wrap = getattr(self, "cards_wrap", None)
+        if grid is None or wrap is None:
+            return
+        try:
+            needed = grid.winfo_reqheight()
+        except tk.TclError:
+            return
+        if needed <= 0:
+            return
+        limit = 350  # muestra los proveedores por defecto; a partir de ahí, scroll
+        target = max(58, min(needed, limit))
+        try:
+            current = int(float(wrap.cget("height")))
+        except (TypeError, ValueError, tk.TclError):
+            current = -1
+        if current != target:
+            wrap.configure(height=target)
+            self.cards_canvas.configure(height=target)
+        self.cards_canvas.configure(scrollregion=self.cards_canvas.bbox("all") or (0, 0, 0, 0))
+        if needed > limit:
+            self.cards_scroll.grid(row=0, column=1, sticky="ns")
+        else:
+            self.cards_scroll.grid_remove()
 
     def _build_center(self, parent: tk.Misc) -> None:
         """Panel principal: conversación con el modelo y compositor de entrada."""
