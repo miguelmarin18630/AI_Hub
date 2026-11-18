@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Empaquetado
+dist/
+build/
+*.spec
+
+# Editores / sistema
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.lnk
+
+# Estado interno de HyperFrames (generado)
+.hyperframes/
+
+# Configuración local (las claves viven en %APPDATA%, no aquí)
+config.json
+cache.json
