@@ -268,6 +268,8 @@ class MainWindow(tk.Tk):
         self.history: list[dict] = []
         self.history_key: tuple[str, str] | None = None
         self._pending_history = False
+        self.current_conversation_id = None
+        self._load_conversation_state()
         self.statuses: dict = {}
         self.access: dict = {}
         self._access_prompted = False
@@ -303,6 +305,8 @@ class MainWindow(tk.Tk):
         self._ensure_visible_category()
         self._update_statuses_ui()
         self._render_all()
+        self._restore_conversation_model()
+        self._render_loaded_conversation()
 
         self.after(60, self._drain_queue)
         self.after(120, self._dark_titlebar)
@@ -408,7 +412,7 @@ class MainWindow(tk.Tk):
         # Columna izquierda de ancho fijo: al añadir proveedores no crece ni
         # empuja a la conversación. `grid_propagate(False)` impide que el
         # contenido (tarjetas, nombres largos) dicte el ancho de la columna.
-        self.sidebar_width = 350
+        self.sidebar_width = 400
         self.sidebar_collapsed = False
         self.sidebar_holder = tk.Frame(body, bg=BG, width=self.sidebar_width)
         self.sidebar_holder.grid(row=0, column=0, sticky="nsew")
@@ -486,34 +490,30 @@ class MainWindow(tk.Tk):
         collapse.bind("<Enter>", lambda _e: collapse.configure(fg=TEXT))
         collapse.bind("<Leave>", lambda _e: collapse.configure(fg=DIM))
 
-        # Tarjetas de proveedor en una zona desplazable con altura limitada:
-        # añadir proveedores hace scroll, no crece la columna.
-        cards_wrap = tk.Frame(side, bg=BG, height=96)
-        cards_wrap.grid(row=1, column=0, sticky="ew", pady=(0, 10))
-        cards_wrap.grid_propagate(False)
-        cards_wrap.columnconfigure(0, weight=1)
-        cards_wrap.rowconfigure(0, weight=1)
-        self.cards_wrap = cards_wrap
-
-        self.cards_canvas = tk.Canvas(
-            cards_wrap, bg=BG, highlightthickness=0, bd=0, height=96
+        # Selector de proveedor (desplegable) para ocupar menos espacio.
+        selector = tk.Frame(side, bg=BG)
+        selector.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        selector.columnconfigure(0, weight=1)
+        tk.Label(selector, text="Proveedor", bg=BG, fg=DIM, font=(FONT, 8, "bold")).grid(
+            row=0, column=0, sticky="w"
         )
-        self.cards_canvas.grid(row=0, column=0, sticky="nsew")
-        self.cards_scroll = ttk.Scrollbar(
-            cards_wrap,
-            orient="vertical",
-            command=self.cards_canvas.yview,
-            style="AIH.Vertical.TScrollbar",
+        self.provider_box = ttk.Combobox(selector, state="readonly", font=(FONT, 9), width=30)
+        self.provider_box.grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        self.provider_box.bind("<<ComboboxSelected>>", self._on_provider_box_select)
+        self.provider_status = tk.Label(
+            selector, text="", bg=BG, fg=MUTED, font=(FONT, 8), anchor="w", wraplength=300, justify="left"
         )
-        self.cards_canvas.configure(yscrollcommand=self.cards_scroll.set)
+        self.provider_status.grid(row=2, column=0, sticky="ew", pady=(4, 0))
 
-        grid = tk.Frame(self.cards_canvas, bg=BG)
-        grid.columnconfigure(0, weight=1)
-        self.cards_window = self.cards_canvas.create_window((0, 0), window=grid, anchor="nw")
-        self.cards_canvas.bind("<Configure>", self._on_cards_canvas_configure)
-        grid.bind("<Configure>", lambda _e: self._sync_cards_size())
-
-        self.card_grid = grid
+        # Tarjetas ocultas para mantener la lógica de estado existente.
+        self.cards_wrap = tk.Frame(side, bg=BG, height=1)
+        self.cards_wrap.grid(row=99, column=0)
+        self.cards_wrap.grid_remove()
+        self.cards_canvas = None
+        self.cards_scroll = None
+        self.cards_window = None
+        self.card_grid = tk.Frame(self.cards_wrap, bg=BG)
+        self.card_grid.columnconfigure(0, weight=1)
         self._render_provider_cards()
 
         # Categorías
@@ -609,8 +609,8 @@ class MainWindow(tk.Tk):
         )
         self.tree.heading("name", text="MODELO", anchor="w")
         self.tree.heading("price", text="PRECIO (USD / 1M)", anchor="e")
-        self.tree.column("name", width=190, minwidth=120, stretch=True)
-        self.tree.column("price", width=120, minwidth=96, stretch=False, anchor="e")
+        self.tree.column("name", width=230, minwidth=150, stretch=True)
+        self.tree.column("price", width=160, minwidth=110, stretch=False, anchor="e")
         self.tree.grid(row=0, column=0, sticky="nsew")
         self.tree.tag_configure("free", foreground=GREEN)
         self.tree.tag_configure("paid", foreground=TEXT)
@@ -666,54 +666,29 @@ class MainWindow(tk.Tk):
         self.card_widgets: dict[str, list[tk.Misc]] = {}
 
         providers = [item for item in catalog.PROVIDERS if self.category in item.get("categories", [])]
-        for index, provider in enumerate(providers):
-            card = tk.Frame(
-                grid,
-                bg=PANEL,
-                highlightbackground=BORDER,
-                highlightthickness=1,
-                cursor="hand2",
-                padx=10,
-                pady=6,
-            )
-            card.grid(row=index, column=0, sticky="ew", pady=(0, 4))
-            card.columnconfigure(1, weight=1)
-
-            glyph = tk.Label(
-                card, text=provider["glyph"], bg=PANEL, fg=provider["color"], font=(FONT, 15, "bold")
-            )
-            glyph.grid(row=0, column=0, rowspan=2, sticky="n", padx=(0, 8))
-            name = tk.Label(card, text=provider["name"], bg=PANEL, fg=TEXT, font=(FONT, 10, "bold"), anchor="w")
-            name.grid(row=0, column=1, sticky="w")
-
-            status_row = tk.Frame(card, bg=PANEL)
-            status_row.grid(row=1, column=1, sticky="w")
-            dot = tk.Label(status_row, text="●", bg=PANEL, fg=DIM, font=(FONT, 7))
-            dot.pack(side="left", padx=(0, 4))
-            status = tk.Label(status_row, text="…", bg=PANEL, fg=MUTED, font=(FONT, 8), anchor="w")
-            status.pack(side="left")
-
-            self.cards[provider["id"]] = card
-            self.card_status[provider["id"]] = status
-            self.card_status_dot[provider["id"]] = dot
-            self.card_widgets[provider["id"]] = [card, glyph, name, status_row, dot, status]
-            _bind_recursive(card, lambda pid=provider["id"]: self._select_provider(pid))
-
-        add = tk.Frame(
-            grid, bg=BG, highlightbackground=BORDER, highlightthickness=1, cursor="hand2", padx=10, pady=5
-        )
-        add.grid(row=len(providers), column=0, sticky="ew", pady=(0, 4))
-        tk.Label(add, text="＋  Añadir proveedor", bg=BG, fg=ACCENT, font=(FONT, 9, "bold")).pack(anchor="w")
-        _bind_recursive(add, self._open_add_provider)
+        self._provider_options = providers
+        self._provider_name_to_id = {item["name"]: item["id"] for item in providers}
+        self.provider_box["values"] = [item["name"] for item in providers]
+        if self.provider in {item["id"] for item in providers}:
+            current = next(item["name"] for item in providers if item["id"] == self.provider)
+            self.provider_box.set(current)
+        elif providers:
+            self.provider_box.set(providers[0]["name"])
+            self.provider = providers[0]["id"]
+            self.cfg["last_provider"] = self.provider
+            config.update_config(last_provider=self.provider)
+        # Botón para añadir proveedor (oculto, se mantiene el acceso por Ajustes).
         self._update_cards()
-        self.after_idle(self._sync_cards_size)
 
     def _on_cards_canvas_configure(self, event) -> None:
+        if getattr(self, "cards_canvas", None) is None:
+            return
         self.cards_canvas.itemconfigure(self.cards_window, width=event.width)
         self.cards_canvas.configure(scrollregion=self.cards_canvas.bbox("all") or (0, 0, 0, 0))
 
     def _sync_cards_size(self) -> None:
-        """Ajusta la altura de la lista de proveedores y su scrollbar."""
+        if getattr(self, "cards_canvas", None) is None:
+            return
         grid = getattr(self, "card_grid", None)
         wrap = getattr(self, "cards_wrap", None)
         if grid is None or wrap is None:
@@ -759,10 +734,16 @@ class MainWindow(tk.Tk):
         self.conv_title.pack(anchor="w")
         self.conv_sub = tk.Label(titles, text="", bg=PANEL, fg=MUTED, font=(FONT, 9), anchor="w")
         self.conv_sub.pack(anchor="w")
+        btns = tk.Frame(head, bg=PANEL)
+        btns.grid(row=0, column=1, sticky="e", padx=(10, 0))
         self.btn_clear = _button(
-            head, "＋  Nuevo chat", lambda: self._new_chat(reset_prompt=True), kind="ghost", height=32, font_size=9
+            btns, "＋  Nuevo chat", lambda: self._new_chat(reset_prompt=True), kind="ghost", height=32, font_size=9
         )
-        self.btn_clear.grid(row=0, column=1, sticky="e", padx=(10, 0))
+        self.btn_clear.pack(side="right")
+        self.btn_history = _button(
+            btns, "Historial", self._open_history, kind="ghost", height=32, font_size=9
+        )
+        self.btn_history.pack(side="right", padx=(0, 6))
 
         # Conversación (la salida)
         conv = tk.Frame(center, bg=INPUT, highlightbackground=BORDER, highlightthickness=1)
@@ -793,6 +774,9 @@ class MainWindow(tk.Tk):
         )
         out_scroll.grid(row=0, column=1, sticky="ns")
         self.output.configure(yscrollcommand=out_scroll.set)
+        self.output.bind("<Control-c>", self._copy_output)
+        self.output.bind("<Control-C>", self._copy_output)
+        self.output.bind("<Control-a>", self._select_all_output)
         self.output.tag_configure("label_user", foreground=MUTED, font=(FONT, 8, "bold"), spacing1=14, spacing3=3)
         self.output.tag_configure(
             "user", background=PANEL_3, foreground=TEXT, lmargin1=70, lmargin2=70, rmargin=10,
@@ -1236,8 +1220,6 @@ class MainWindow(tk.Tk):
         config.update_config(last_provider=provider)
         self.selected = None
         self._render_all(cards=False)
-        if not self.busy:
-            self._new_chat()
         if provider == "openrouter" and self.category == "media":
             self._ensure_image_prices()
 
@@ -1430,8 +1412,6 @@ class MainWindow(tk.Tk):
             model = self.visible[index]
             changed = not self.selected or (self.selected.uid, self.selected.provider) != (model.uid, model.provider)
             self.selected = model
-            if changed and not self.busy:
-                self._new_chat()
             self._update_detail()
 
     def _on_search_change(self) -> None:
@@ -1783,9 +1763,18 @@ class MainWindow(tk.Tk):
         """El texto de ayuda desaparece al escribir, no al enfocar."""
         if not getattr(self, "_prompt_placeholder_active", False):
             return None
+        # No borrar el marcador de posición con atajos de portapapeles o
+        # navegación: deja que Tk los procese normalmente.
+        if event.state & 0x4 or event.state & 0x8:  # Control o Alt
+            if event.keysym.lower() in ("v", "x", "a"):
+                self.prompt.delete("1.0", "end")
+                self.prompt.configure(fg=TEXT)
+                self._prompt_placeholder_active = False
+            return None
         if event.keysym in (
             "Left", "Right", "Home", "End", "Up", "Down", "Tab",
             "Shift_L", "Shift_R", "Control_L", "Control_R", "Alt_L", "Alt_R",
+            "BackSpace", "Delete",
         ):
             return None
         self.prompt.delete("1.0", "end")
@@ -2182,9 +2171,11 @@ class MainWindow(tk.Tk):
             return
 
         key = (model.provider, model.uid)
-        if self.history_key != key:
-            self.history = []
+        # El historial se mantiene al cambiar de modelo o proveedor: solo se
+        # reinicia con «Nuevo chat». Así se puede seguir la conversación.
+        if self.history_key is None:
             self.history_key = key
+        self.history_key = key
         note = ""
         if image_b64 is not None and attachment is not None:
             note = f"\n[imagen adjunta: {attachment.name}]"
@@ -2636,6 +2627,130 @@ class MainWindow(tk.Tk):
         elif self._pending_history and self.history and self.history[-1].get("role") == "user":
             self.history.pop()
         self._pending_history = False
+        self._save_conversation_state(include_current=True)
+
+    def _conversation_path(self) -> Path:
+        return config.app_dir() / "conversations.json"
+
+    def _load_conversation_state(self) -> None:
+        path = self._conversation_path()
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            data = {}
+        items = data.get("items") if isinstance(data, dict) else None
+        self.conversations = [dict(item) for item in (items or []) if isinstance(item, dict)]
+        current = data.get("current") if isinstance(data, dict) else None
+        if isinstance(current, dict) and current.get("messages"):
+            self.history = [dict(m) for m in current["messages"] if isinstance(m, dict)]
+            model = current.get("model")
+            if isinstance(model, str) and ":" in model:
+                provider, uid = model.split(":", 1)
+                self.history_key = (provider, uid)
+            self.current_conversation_id = current.get("id")
+            self._loaded_conversation = current
+        else:
+            self._loaded_conversation = None
+
+    def _save_current_conversation(self) -> None:
+        if not self.history:
+            return
+        record = self._conversation_record()
+        if record is None:
+            return
+        # Sustituye si ya existía (mismo id) o añade.
+        items = [item for item in self.conversations if item.get("id") != record["id"]]
+        items.insert(0, record)
+        self.conversations = items[:30]
+        self.current_conversation_id = record["id"]
+
+    def _conversation_record(self) -> dict | None:
+        if not self.history:
+            return None
+        first_user = next((str(m.get("content") or "") for m in self.history if m.get("role") == "user"), "")
+        title = first_user.strip().replace("\\n", " ")
+        if len(title) > 60:
+            title = title[:57] + "…"
+        if not title:
+            title = "Chat sin título"
+        model = None
+        if self.history_key:
+            model = f"{self.history_key[0]}:{self.history_key[1]}"
+        elif self.selected is not None:
+            model = f"{self.selected.provider}:{self.selected.uid}"
+        return {
+            "id": self.current_conversation_id or str(int(time.time() * 1000)),
+            "title": title,
+            "model": model,
+            "messages": [dict(m) for m in self.history],
+            "updated": time.time(),
+        }
+
+    def _save_conversation_state(self, include_current: bool = True) -> None:
+        current = None
+        if include_current and self.history:
+            current = self._conversation_record()
+            if current is not None:
+                self.current_conversation_id = current["id"]
+        data = {"items": self.conversations, "current": current}
+        try:
+            path = self._conversation_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+
+    def _render_loaded_conversation(self) -> None:
+        current = getattr(self, "_loaded_conversation", None)
+        if not current or not current.get("messages"):
+            return
+        self._clear_output()
+        stamp = time.strftime("%H:%M")
+        for message in current["messages"]:
+            role = message.get("role")
+            content = str(message.get("content") or "")
+            if role == "user":
+                self._out(f"\\nTú · {stamp}\\n", "label_user")
+                self._out(f"{content}\\n", "user")
+            else:
+                name = self.selected.name if self.selected is not None else "Asistente"
+                self._out(f"\\n{name} · {stamp}\\n", "label_model")
+                self._out(f"{content}\\n", "normal")
+        self._out("\\n(Conversación recuperada)\\n", "dim")
+        self._loaded_conversation = None
+
+    def _restore_conversation_model(self) -> None:
+        current = None
+        try:
+            data = json.loads(self._conversation_path().read_text(encoding="utf-8"))
+            current = data.get("current") if isinstance(data, dict) else None
+        except Exception:
+            current = None
+        if not isinstance(current, dict) or not current.get("model"):
+            return
+        model_id = str(current["model"])
+        if ":" not in model_id:
+            return
+        provider, uid = model_id.split(":", 1)
+        model = None
+        for item in (self.catalogs.get(self.category) or self.visible or []):
+            if item.provider == provider and item.uid == uid:
+                model = item
+                break
+        if model is None:
+            # Buscar en todos los catálogos cargados.
+            for models in self.catalogs.values():
+                for item in models or []:
+                    if item.provider == provider and item.uid == uid:
+                        model = item
+                        break
+                if model is not None:
+                    break
+        if model is not None:
+            self.selected = model
+            self.history_key = (provider, uid)
+            self._update_detail()
+            self._ensure_visible_category()
 
     def _record_usage(self, key, *, cost: float = 0.0, images: int = 0, videos: int = 0, usage_data: dict | None = None) -> None:
         """Suma el uso de una respuesta al consumo guardado del modelo."""
@@ -2653,6 +2768,121 @@ class MainWindow(tk.Tk):
             videos=videos,
         )
         self._update_usage_label()
+
+    def _open_history(self) -> None:
+        if self.busy:
+            self._set_status("Espera a que termine la respuesta actual")
+            return
+        self._save_current_conversation()
+        self._save_conversation_state(include_current=True)
+        items = [dict(item) for item in self.conversations]
+        current = None
+        try:
+            data = json.loads(self._conversation_path().read_text(encoding="utf-8"))
+            current = data.get("current") if isinstance(data, dict) else None
+        except Exception:
+            current = None
+        if isinstance(current, dict) and current.get("messages"):
+            items = [current] + [item for item in items if item.get("id") != current.get("id")]
+
+        win = tk.Toplevel(self)
+        win.title("Historial de conversaciones")
+        win.configure(bg=BG)
+        win.geometry("560x440")
+        win.transient(self)
+
+        tk.Label(win, text="Conversaciones guardadas", bg=BG, fg=TEXT, font=(FONT, 11, "bold")).pack(
+            anchor="w", padx=14, pady=(12, 6)
+        )
+        frame = tk.Frame(win, bg=PANEL, highlightbackground=BORDER, highlightthickness=1)
+        frame.pack(fill="both", expand=True, padx=14, pady=(0, 10))
+        listbox = tk.Listbox(
+            frame, bg=PANEL, fg=TEXT, selectbackground=ACCENT_SOFT, selectforeground=TEXT,
+            relief="flat", bd=0, highlightthickness=0, font=(FONT, 9),
+        )
+        listbox.pack(fill="both", expand=True, padx=6, pady=6)
+        for item in items:
+            title = str(item.get("title") or "Chat sin título")
+            model = str(item.get("model") or "")
+            listbox.insert("end", f"{title}  ·  {model}")
+
+        def load_selected() -> None:
+            selection = listbox.curselection()
+            if not selection:
+                return
+            index = selection[0]
+            if 0 <= index < len(items):
+                self._load_conversation_record(items[index])
+                win.destroy()
+
+        def delete_selected() -> None:
+            selection = listbox.curselection()
+            if not selection:
+                return
+            index = selection[0]
+            if 0 <= index < len(items):
+                target_id = items[index].get("id")
+                del items[index]
+                self.conversations = [item for item in self.conversations if item.get("id") != target_id]
+                listbox.delete(index)
+                self._save_conversation_state(include_current=True)
+
+        actions = tk.Frame(win, bg=BG)
+        actions.pack(fill="x", padx=14, pady=(0, 12))
+        _button(actions, "Abrir", load_selected, kind="primary", height=30, font_size=9).pack(side="left")
+        _button(actions, "Borrar", delete_selected, kind="danger", height=30, font_size=9).pack(side="left", padx=(6, 0))
+        _button(actions, "Cerrar", win.destroy, kind="ghost", height=30, font_size=9).pack(side="right")
+        listbox.bind("<Double-1>", lambda _e: load_selected())
+
+    def _load_conversation_record(self, record: dict) -> None:
+        if self.busy:
+            return
+        self._save_current_conversation()
+        self.history = [dict(m) for m in (record.get("messages") or []) if isinstance(m, dict)]
+        model = record.get("model")
+        if isinstance(model, str) and ":" in model:
+            provider, uid = model.split(":", 1)
+            self.history_key = (provider, uid)
+        else:
+            self.history_key = None
+        self.current_conversation_id = record.get("id")
+        self._clear_output()
+        stamp = time.strftime("%H:%M")
+        for message in self.history:
+            role = message.get("role")
+            content = str(message.get("content") or "")
+            if role == "user":
+                self._out(f"\\nTú · {stamp}\\n", "label_user")
+                self._out(f"{content}\\n", "user")
+            else:
+                name = self.selected.name if self.selected is not None else "Asistente"
+                self._out(f"\\n{name} · {stamp}\\n", "label_model")
+                self._out(f"{content}\\n", "normal")
+        self._out("\\n(Conversación recuperada)\\n", "dim")
+        if self.history_key:
+            provider, uid = self.history_key
+            for models in self.catalogs.values():
+                for item in (models or []):
+                    if item.provider == provider and item.uid == uid:
+                        self.selected = item
+                        self._update_detail()
+                        break
+        self._save_conversation_state(include_current=True)
+
+    def _copy_output(self, _event=None):
+        try:
+            text = self.output.get("sel.first", "sel.last")
+        except tk.TclError:
+            return "break"
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        return "break"
+
+    def _select_all_output(self, _event=None):
+        self.output.tag_add("sel", "1.0", "end")
+        self.output.mark_set("insert", "1.0")
+        self.output.see("insert")
+        return "break"
 
     def _on_chat_done(self, reply: str, usage_data: dict, elapsed: float, key=None) -> None:
         self._record_usage(key, usage_data=usage_data)
@@ -2755,9 +2985,11 @@ class MainWindow(tk.Tk):
         if self.busy:
             self._set_status("Espera a que termine la respuesta actual")
             return
+        self._save_current_conversation()
         self.history = []
         self.history_key = None
         self._pending_history = False
+        self.current_conversation_id = None
         self.touched_files = []
         self.attachment = None
         self._update_attachment_ui()
@@ -2767,6 +2999,7 @@ class MainWindow(tk.Tk):
         self._clear_output()
         self._refresh_touched()
         self._set_status("Chat nuevo")
+        self._save_conversation_state(include_current=False)
 
     def _clear_output(self) -> None:
         self.output.configure(state="normal")
@@ -2832,23 +3065,27 @@ class MainWindow(tk.Tk):
         text = f"●  {ready}/{total} proveedores · revisar"
         self.header_chip.configure(text=text, fg=AMBER if ready else RED)
 
+    def _on_provider_box_select(self, _event=None) -> None:
+        name = self.provider_box.get()
+        pid = self._provider_name_to_id.get(name)
+        if pid and pid != self.provider:
+            self._select_provider(pid)
+
     def _update_cards(self) -> None:
         openrouter = self.access.get("openrouter") or {}
         for provider in catalog.PROVIDERS:
             pid = provider["id"]
-            if pid not in self.card_status_dot:
-                continue
-            dot = self.card_status_dot[pid]
-            label = self.card_status[pid]
+            dot = self.card_status_dot.get(pid)
+            label = self.card_status.get(pid)
 
             if provider.get("custom"):
                 count = len(self.catalogs.get(pid, []))
                 if count:
                     text = f"Conectado · {count} modelos"
-                    dot.configure(fg=GREEN)
+                    color = GREEN
                 else:
                     text = "Sin modelos: revisa la clave"
-                    dot.configure(fg=AMBER)
+                    color = AMBER
             elif pid == "openrouter":
                 if openrouter.get("ok"):
                     credits = openrouter.get("credits")
@@ -2856,51 +3093,54 @@ class MainWindow(tk.Tk):
                         text = "Clave válida · con saldo" if credits > 0 else "Clave válida · sin saldo"
                     else:
                         text = "Clave válida"
-                    dot.configure(fg=GREEN if not isinstance(credits, (int, float)) or credits > 0 else AMBER)
+                    color = GREEN if not isinstance(credits, (int, float)) or credits > 0 else AMBER
                 elif openrouter.get("reason") == "invalid":
                     text = "Clave no válida"
-                    dot.configure(fg=RED)
+                    color = RED
                 elif openrouter.get("reason") == "error":
                     text = "Sin conexión"
-                    dot.configure(fg=RED)
-                elif config.openrouter_key(self.cfg):
+                    color = RED
+                elif config.openrouter_key(self.cfg, allow_env=False):
                     text = "Comprobando…"
-                    dot.configure(fg=AMBER)
+                    color = AMBER
                 else:
                     text = "Falta la clave"
-                    dot.configure(fg=AMBER)
+                    color = AMBER
             elif pid == "ollama":
                 running = self.statuses.get("ollama_running")
                 exists = self.statuses.get("ollama")
-                models = self.statuses.get("ollama_models") or 0
                 if exists and running:
                     text = "Servidor activo"
-                    dot.configure(fg=GREEN)
+                    color = GREEN
                 elif exists:
                     text = "Servidor apagado"
-                    dot.configure(fg=AMBER)
+                    color = AMBER
                 else:
                     text = "No instalado"
-                    dot.configure(fg=RED)
+                    color = RED
             else:
                 exists = self.statuses.get(pid)
                 if self.catalog_errors.get(pid):
                     text = "No se pudieron leer los modelos · Actualizar"
-                    dot.configure(fg=AMBER)
+                    color = AMBER
                 else:
                     text = "Instalado" if exists else "No instalado"
-                    dot.configure(fg=GREEN if exists else RED)
+                    color = GREEN if exists else RED
 
-            label.configure(text=text)
+            if dot is not None:
+                dot.configure(fg=color)
+            if label is not None:
+                label.configure(text=text)
+            if pid == self.provider and getattr(self, "provider_status", None) is not None:
+                self.provider_status.configure(text=text, fg=color)
 
         self._paint_header_chip()
 
-        # Resaltar tarjeta activa
-        for pid, card in self.cards.items():
+        for pid, card in getattr(self, "cards", {}).items():
             active = pid == self.provider
             bg = PANEL_2 if active else PANEL
             card.configure(bg=bg, highlightbackground=ACCENT if active else BORDER)
-            for widget in self.card_widgets[pid]:
+            for widget in self.card_widgets.get(pid, []):
                 try:
                     widget.configure(bg=bg)
                 except Exception:
@@ -4010,6 +4250,7 @@ class MainWindow(tk.Tk):
                 self.proc.terminate()
             except Exception:
                 pass
+        self._save_conversation_state(include_current=True)
         self.destroy()
 
 
