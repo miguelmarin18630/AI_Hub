@@ -492,7 +492,7 @@ class MainWindow(tk.Tk):
 
         # Tarjetas de proveedor en una zona desplazable con altura limitada:
         # añadir proveedores hace scroll, no crece la columna.
-        cards_wrap = tk.Frame(side, bg=BG, height=96)
+        cards_wrap = tk.Frame(side, bg=BG, height=140)
         cards_wrap.grid(row=1, column=0, sticky="ew", pady=(0, 10))
         cards_wrap.grid_propagate(False)
         cards_wrap.columnconfigure(0, weight=1)
@@ -500,7 +500,7 @@ class MainWindow(tk.Tk):
         self.cards_wrap = cards_wrap
 
         self.cards_canvas = tk.Canvas(
-            cards_wrap, bg=BG, highlightthickness=0, bd=0, height=96
+            cards_wrap, bg=BG, highlightthickness=0, bd=0, height=140
         )
         self.cards_canvas.grid(row=0, column=0, sticky="nsew")
         self.cards_scroll = ttk.Scrollbar(
@@ -735,7 +735,7 @@ class MainWindow(tk.Tk):
             return
         if needed <= 0:
             return
-        limit = 350  # muestra los proveedores por defecto; a partir de ahí, scroll
+        limit = 140  # proveedores ocupan menos; a partir de aquí, scroll
         target = max(58, min(needed, limit))
         try:
             current = int(float(wrap.cget("height")))
