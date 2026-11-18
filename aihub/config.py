@@ -11,8 +11,10 @@ import os
 import sys
 from pathlib import Path
 
+from . import __version__
+
 APP_NAME = "AI Hub"
-APP_VERSION = "1.0.0"
+APP_VERSION = __version__
 
 
 def _app_dir() -> Path:
