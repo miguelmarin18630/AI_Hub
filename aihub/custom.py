@@ -51,7 +51,30 @@ def is_vision(model_id: str) -> bool:
     return any(word in low for word in _VISION_WORDS)
 
 
-def _is_free_model(model_id: str) -> bool:
+_OPENAI_PRICES = {
+    "gpt-4o": (2.50, 10.00),
+    "gpt-4o-mini": (0.15, 0.60),
+    "gpt-4.1": (2.00, 8.00),
+    "gpt-4.1-mini": (0.40, 1.60),
+    "gpt-4.1-nano": (0.10, 0.40),
+    "gpt-4-turbo": (10.00, 30.00),
+    "gpt-4": (30.00, 60.00),
+    "gpt-3.5-turbo": (0.50, 1.50),
+    "o1": (15.00, 60.00),
+    "o1-mini": (1.10, 4.40),
+    "o1-preview": (15.00, 60.00),
+    "o3": (2.00, 8.00),
+    "o3-mini": (1.10, 4.40),
+    "o4-mini": (1.10, 4.40),
+}
+
+
+def _openai_price(model_id: str) -> tuple[float | None, float | None]:
+    low = model_id.lower()
+    for key, (pin, pout) in _OPENAI_PRICES.items():
+        if key in low:
+            return pin, pout
+    return None, None
     """Determina si un modelo de proveedor personalizado es gratuito.
 
     Reglas por proveedor basadas en substrings del nombre del modelo.
@@ -148,12 +171,20 @@ def fetch(record: dict, timeout: int = 30) -> list[catalog.Model]:
         tags = ["herramientas"] if category == "code" else ["imagen"]
         if vision:
             tags.append("visión")
-        # Determinar si es gratuito basándose en el nombre del modelo
         is_free = _is_free_model(model_id)
-        # Establecer precio: si es gratis, 0; si no, indicar que hay que consultar cuenta
+        is_openai = "api.openai.com" in base.lower()
+        pin, pout = (_openai_price(model_id) if is_openai else (None, None))
+        if is_openai and (pin is not None or pout is not None):
+            tags.append("de pago")
+            custom_paid = False
+        else:
+            custom_paid = not is_free
+            if not is_free:
+                tags.append("de pago")
+        if is_free:
+            tags.append("gratis")
         price_val = 0.0 if is_free else None
         price_unit = "gratis" if is_free else "por consultar en cuenta"
-        tags.append("gratis" if is_free else "de pago")
         models.append(
             catalog.Model(
                 provider=pid,
@@ -161,6 +192,8 @@ def fetch(record: dict, timeout: int = 30) -> list[catalog.Model]:
                 name=model_id,
                 category=category,
                 free=is_free,
+                p_in=pin,
+                p_out=pout,
                 price=price_val,
                 unit="1M tokens" if category == "code" else "imagen",
                 desc=f"Modelo de {name}. {price_unit}. Revisa tu cuenta para confirmar.",
@@ -169,7 +202,7 @@ def fetch(record: dict, timeout: int = 30) -> list[catalog.Model]:
                     "modality": "text+image->text" if vision else "text->text",
                     "custom": True,
                     "free_model": is_free,
-                    "custom_paid": not is_free,
+                    "custom_paid": custom_paid,
                 },
             )
         )

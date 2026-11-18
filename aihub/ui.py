@@ -490,30 +490,34 @@ class MainWindow(tk.Tk):
         collapse.bind("<Enter>", lambda _e: collapse.configure(fg=TEXT))
         collapse.bind("<Leave>", lambda _e: collapse.configure(fg=DIM))
 
-        # Selector de proveedor (desplegable) para ocupar menos espacio.
-        selector = tk.Frame(side, bg=BG)
-        selector.grid(row=1, column=0, sticky="ew", pady=(0, 10))
-        selector.columnconfigure(0, weight=1)
-        tk.Label(selector, text="Proveedor", bg=BG, fg=DIM, font=(FONT, 8, "bold")).grid(
-            row=0, column=0, sticky="w"
-        )
-        self.provider_box = ttk.Combobox(selector, state="readonly", font=(FONT, 9), width=30)
-        self.provider_box.grid(row=1, column=0, sticky="ew", pady=(4, 0))
-        self.provider_box.bind("<<ComboboxSelected>>", self._on_provider_box_select)
-        self.provider_status = tk.Label(
-            selector, text="", bg=BG, fg=MUTED, font=(FONT, 8), anchor="w", wraplength=300, justify="left"
-        )
-        self.provider_status.grid(row=2, column=0, sticky="ew", pady=(4, 0))
+        # Tarjetas de proveedor en una zona desplazable con altura limitada:
+        # añadir proveedores hace scroll, no crece la columna.
+        cards_wrap = tk.Frame(side, bg=BG, height=96)
+        cards_wrap.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        cards_wrap.grid_propagate(False)
+        cards_wrap.columnconfigure(0, weight=1)
+        cards_wrap.rowconfigure(0, weight=1)
+        self.cards_wrap = cards_wrap
 
-        # Tarjetas ocultas para mantener la lógica de estado existente.
-        self.cards_wrap = tk.Frame(side, bg=BG, height=1)
-        self.cards_wrap.grid(row=99, column=0)
-        self.cards_wrap.grid_remove()
-        self.cards_canvas = None
-        self.cards_scroll = None
-        self.cards_window = None
-        self.card_grid = tk.Frame(self.cards_wrap, bg=BG)
-        self.card_grid.columnconfigure(0, weight=1)
+        self.cards_canvas = tk.Canvas(
+            cards_wrap, bg=BG, highlightthickness=0, bd=0, height=96
+        )
+        self.cards_canvas.grid(row=0, column=0, sticky="nsew")
+        self.cards_scroll = ttk.Scrollbar(
+            cards_wrap,
+            orient="vertical",
+            command=self.cards_canvas.yview,
+            style="AIH.Vertical.TScrollbar",
+        )
+        self.cards_canvas.configure(yscrollcommand=self.cards_scroll.set)
+
+        grid = tk.Frame(self.cards_canvas, bg=BG)
+        grid.columnconfigure(0, weight=1)
+        self.cards_window = self.cards_canvas.create_window((0, 0), window=grid, anchor="nw")
+        self.cards_canvas.bind("<Configure>", self._on_cards_canvas_configure)
+        grid.bind("<Configure>", lambda _e: self._sync_cards_size())
+
+        self.card_grid = grid
         self._render_provider_cards()
 
         # Categorías
@@ -593,6 +597,10 @@ class MainWindow(tk.Tk):
         self.sort_box.grid(row=1, column=1, sticky="ew", padx=(4, 0))
         self.sort_box.bind("<<ComboboxSelected>>", lambda _e: self._render_list())
 
+        self.model_box = ttk.Combobox(toolbar, state="readonly", font=(FONT, 9))
+        self.model_box.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        self.model_box.bind("<<ComboboxSelected>>", self._on_model_box_select)
+
         # Tabla de modelos
         table_frame = tk.Frame(side, bg=PANEL, highlightbackground=BORDER, highlightthickness=1)
         table_frame.grid(row=5, column=0, sticky="nsew")
@@ -656,29 +664,57 @@ class MainWindow(tk.Tk):
         self.count_label.grid(row=1, column=0, sticky="w")
 
     def _render_provider_cards(self) -> None:
-        """Tarjetas de los proveedores que tienen modelos en la pestaña activa."""
         grid = self.card_grid
         for child in grid.winfo_children():
             child.destroy()
-        self.cards: dict[str, tk.Frame] = {}
-        self.card_status: dict[str, tk.Label] = {}
-        self.card_status_dot: dict[str, tk.Label] = {}
-        self.card_widgets: dict[str, list[tk.Misc]] = {}
+        self.cards = {}
+        self.card_status = {}
+        self.card_status_dot = {}
+        self.card_widgets = {}
 
         providers = [item for item in catalog.PROVIDERS if self.category in item.get("categories", [])]
-        self._provider_options = providers
-        self._provider_name_to_id = {item["name"]: item["id"] for item in providers}
-        self.provider_box["values"] = [item["name"] for item in providers]
-        if self.provider in {item["id"] for item in providers}:
-            current = next(item["name"] for item in providers if item["id"] == self.provider)
-            self.provider_box.set(current)
-        elif providers:
-            self.provider_box.set(providers[0]["name"])
-            self.provider = providers[0]["id"]
-            self.cfg["last_provider"] = self.provider
-            config.update_config(last_provider=self.provider)
-        # Botón para añadir proveedor (oculto, se mantiene el acceso por Ajustes).
+        for index, provider in enumerate(providers):
+            card = tk.Frame(
+                grid,
+                bg=PANEL,
+                highlightbackground=BORDER,
+                highlightthickness=1,
+                cursor="hand2",
+                padx=10,
+                pady=6,
+            )
+            card.grid(row=index, column=0, sticky="ew", pady=(0, 4))
+            card.columnconfigure(1, weight=1)
+
+            glyph = tk.Label(
+                card, text=provider["glyph"], bg=PANEL, fg=provider["color"], font=(FONT, 15, "bold")
+            )
+            glyph.grid(row=0, column=0, rowspan=2, sticky="n", padx=(0, 8))
+            name = tk.Label(card, text=provider["name"], bg=PANEL, fg=TEXT, font=(FONT, 10, "bold"), anchor="w")
+            name.grid(row=0, column=1, sticky="w")
+
+            status_row = tk.Frame(card, bg=PANEL)
+            status_row.grid(row=1, column=1, sticky="w")
+            dot = tk.Label(status_row, text="*", bg=PANEL, fg=DIM, font=(FONT, 7))
+            dot.pack(side="left", padx=(0, 4))
+            status = tk.Label(status_row, text="...", bg=PANEL, fg=MUTED, font=(FONT, 8), anchor="w")
+            status.pack(side="left")
+
+            self.cards[provider["id"]] = card
+            self.card_status[provider["id"]] = status
+            self.card_status_dot[provider["id"]] = dot
+            self.card_widgets[provider["id"]] = [card, glyph, name, status_row, dot, status]
+            _bind_recursive(card, lambda pid=provider["id"]: self._select_provider(pid))
+
+        add = tk.Frame(
+            grid, bg=BG, highlightbackground=BORDER, highlightthickness=1, cursor="hand2", padx=10, pady=5
+        )
+        add.grid(row=len(providers), column=0, sticky="ew", pady=(0, 4))
+        tk.Label(add, text="+  Anadir proveedor", bg=BG, fg=ACCENT, font=(FONT, 9, "bold")).pack(anchor="w")
+        _bind_recursive(add, self._open_add_provider)
         self._update_cards()
+        self.after_idle(self._sync_cards_size)
+
 
     def _on_cards_canvas_configure(self, event) -> None:
         if getattr(self, "cards_canvas", None) is None:
@@ -1257,6 +1293,16 @@ class MainWindow(tk.Tk):
             "Contexto ↓": "context",
         }.get(self.sort_var.get(), "price")
 
+    def _on_model_box_select(self, _event=None) -> None:
+        if not hasattr(self, "model_box"):
+            return
+        index = self.model_box.current()
+        if 0 <= index < len(self.visible):
+            model = self.visible[index]
+            if self.selected is None or (self.selected.uid, self.selected.provider) != (model.uid, model.provider):
+                self.selected = model
+                self._update_detail()
+
     def _render_list(self) -> None:
         previous = self.selected
         models = self._models_for_view()
@@ -1297,6 +1343,13 @@ class MainWindow(tk.Tk):
         )
         self.count_label.configure(text=f"{len(self.visible)} de {total} modelos")
         self._update_empty_state(total)
+        if hasattr(self, "model_box"):
+            self.model_box["values"] = [model.name for model in self.visible]
+            if self.selected is not None:
+                for index, model in enumerate(self.visible):
+                    if (model.uid, model.provider) == (self.selected.uid, self.selected.provider):
+                        self.model_box.current(index)
+                        break
 
         if not self.visible:
             self.selected = None
