@@ -252,6 +252,18 @@ class MainWindow(tk.Tk):
         _pick_fonts(self)
         _setup_style(self)
 
+        self.logged_user = None
+        try:
+            from aihub.web import users as web_users
+            if web_users.has_users() and "--smoke" not in sys.argv:
+                user = self._prompt_login()
+                if user is None:
+                    self.destroy()
+                    return
+                self.logged_user = user
+                web_users.activate(user["id"])
+        except Exception:
+            pass
         self.cfg = config.load_config()
         config.ensure_dirs()
         custom.register(self.cfg)
@@ -393,6 +405,9 @@ class MainWindow(tk.Tk):
 
         self.btn_settings = _button(right, "⚙  Ajustes", self._open_settings, kind="primary", height=34, bold=True)
         self.btn_settings.pack(side="left")
+        if getattr(self, "logged_user", None):
+            user_chip = tk.Label(right, text=f"👤 {self.logged_user['name']}", bg=PANEL_2, fg=TEXT, font=(FONT, 9), padx=10, pady=5)
+            user_chip.pack(side="left", padx=(8, 0))
 
         self._update_project_button()
 
@@ -4295,6 +4310,58 @@ class MainWindow(tk.Tk):
             variable.set(selected)
 
     # -- cierre -------------------------------------------------------------
+
+    def _prompt_login(self):
+        from aihub.web import users as web_users
+
+        result = {"user": None}
+
+        win = tk.Toplevel(self)
+        win.title("Iniciar sesión · AI Hub")
+        win.geometry("360x260")
+        win.resizable(False, False)
+        win.transient(self)
+        win.grab_set()
+        win.configure(bg=BG)
+
+        tk.Label(win, text="AI HUB", bg=BG, fg=TEXT, font=(FONT, 14, "bold")).pack(pady=(18, 2))
+        tk.Label(win, text="Inicia sesión para usar tu cuenta", bg=BG, fg=MUTED, font=(FONT, 9)).pack(pady=(0, 12))
+
+        form = tk.Frame(win, bg=BG)
+        form.pack(fill="x", padx=24)
+
+        tk.Label(form, text="Usuario", bg=BG, fg=DIM, font=(FONT, 8, "bold")).pack(anchor="w")
+        name_var = tk.StringVar()
+        name_entry = tk.Entry(form, textvariable=name_var, bg=INPUT, fg=TEXT, insertbackground=TEXT, relief="flat", bd=0, highlightthickness=1, highlightbackground=BORDER, highlightcolor=ACCENT, font=(FONT, 10))
+        name_entry.pack(fill="x", pady=(2, 8), ipady=4)
+
+        tk.Label(form, text="Contraseña", bg=BG, fg=DIM, font=(FONT, 8, "bold")).pack(anchor="w")
+        pass_var = tk.StringVar()
+        pass_entry = tk.Entry(form, textvariable=pass_var, show="*", bg=INPUT, fg=TEXT, insertbackground=TEXT, relief="flat", bd=0, highlightthickness=1, highlightbackground=BORDER, highlightcolor=ACCENT, font=(FONT, 10))
+        pass_entry.pack(fill="x", pady=(2, 8), ipady=4)
+
+        error_var = tk.StringVar()
+        tk.Label(form, textvariable=error_var, bg=BG, fg=RED, font=(FONT, 8)).pack(anchor="w")
+
+        def submit(_event=None):
+            user = web_users.verify(name_var.get(), pass_var.get())
+            if user:
+                result["user"] = user
+                win.destroy()
+            else:
+                error_var.set("Usuario o contraseña incorrectos.")
+
+        tk.Button(
+            form, text="Entrar", command=submit, bg=ACCENT, fg="#ffffff", relief="flat", bd=0,
+            font=(FONT, 10, "bold"), cursor="hand2", pady=6,
+        ).pack(fill="x", pady=(6, 0))
+
+        name_entry.bind("<Return>", submit)
+        pass_entry.bind("<Return>", submit)
+        name_entry.focus_set()
+
+        self.wait_window(win)
+        return result["user"]
 
     def _on_close(self) -> None:
         self.cancel_event.set()
