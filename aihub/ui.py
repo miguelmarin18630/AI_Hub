@@ -4395,6 +4395,12 @@ class MainWindow(tk.Tk):
 
     def _on_close(self) -> None:
         try:
+            for child in list(self.winfo_children()):
+                if isinstance(child, tk.Toplevel):
+                    try:
+                        child.destroy()
+                    except Exception:
+                        pass
             self.cancel_event.set()
         except Exception:
             pass
