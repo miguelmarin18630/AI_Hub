@@ -17,6 +17,14 @@ CACHE_VERSION = 4
 
 PROVIDERS = [
     {
+        "id": "ollama",
+        "name": "Ollama",
+        "sub": "Local, 100 % gratis",
+        "glyph": "⬢",
+        "color": "#4ec9b0",
+        "categories": ["code"],
+    },
+    {
         "id": "opencode",
         "name": "OpenCode",
         "sub": "Agente de código en terminal",
@@ -30,14 +38,6 @@ PROVIDERS = [
         "sub": "Anthropic, en terminal",
         "glyph": "✳",
         "color": "#e89b5a",
-        "categories": ["code"],
-    },
-    {
-        "id": "ollama",
-        "name": "Ollama",
-        "sub": "Local, 100 % gratis",
-        "glyph": "⬢",
-        "color": "#4ec9b0",
         "categories": ["code"],
     },
     {
@@ -776,7 +776,7 @@ def refresh_all(
     image_prices: bool = False,
 ) -> dict:
     """Actualiza los catálogos indicados. Devuelve {provider: {models, error}}."""
-    wanted = set(providers or ["openrouter", "claude", "opencode", "ollama"])
+    wanted = set(providers or ["ollama", "opencode", "claude", "openrouter"])
     result: dict[str, dict] = {}
 
     text_raw: list[dict] = []
