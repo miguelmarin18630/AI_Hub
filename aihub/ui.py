@@ -1867,11 +1867,16 @@ class MainWindow(tk.Tk):
             local.open_path(path)
 
     def _open_project_folder(self) -> None:
-        root = self._current_project()
-        if root is not None and root.is_dir():
-            local.open_path(root)
-        else:
-            self._set_status("No hay proyecto seleccionado")
+        chosen = filedialog.askdirectory(parent=self, title="Elegir carpeta para los archivos")
+        if not chosen:
+            return
+        self.cfg["workdir"] = chosen
+        try:
+            config.update_config(workdir=chosen)
+        except Exception:
+            pass
+        self._refresh_files()
+        self._set_status(f"Carpeta: {Path(chosen).name}")
 
     def _on_prompt_enter(self, event):
         """Enter envía (estilo chat); Shift+Enter inserta un salto de línea."""
@@ -2667,6 +2672,8 @@ class MainWindow(tk.Tk):
         self._out(f"✕ {message}\n", "err")
         self._set_busy(False)
         self._set_status(message[:150])
+        self._save_current_conversation()
+        self._save_conversation_state(include_current=True)
 
     def _stop(self) -> None:
         self.cancel_event.set()
@@ -3059,6 +3066,8 @@ class MainWindow(tk.Tk):
         self._refresh_files()
         self.attachment = None
         self._update_attachment_ui()
+        self._save_current_conversation()
+        self._save_conversation_state(include_current=True)
 
     def _on_agent_done(
         self,
@@ -3083,6 +3092,8 @@ class MainWindow(tk.Tk):
         self._set_status(
             f"Listo · {len(touched)} archivo(s) modificados" if touched else "Listo · sin cambios en archivos"
         )
+        self._save_current_conversation()
+        self._save_conversation_state(include_current=True)
 
     def _on_image(self, path: str, cost, elapsed: float, key=None) -> None:
         self._record_usage(key, cost=cost or 0.0, images=1)
@@ -3095,6 +3106,8 @@ class MainWindow(tk.Tk):
         _set_enabled(self.btn_open_file, True)
         self._set_busy(False)
         self._set_status("Imagen generada")
+        self._save_current_conversation()
+        self._save_conversation_state(include_current=True)
 
     def _on_video(self, path: str, elapsed: float, key=None) -> None:
         self._record_usage(key, videos=1)
@@ -3103,6 +3116,8 @@ class MainWindow(tk.Tk):
         _set_enabled(self.btn_open_file, True)
         self._set_busy(False)
         self._set_status("Vídeo generado")
+        self._save_current_conversation()
+        self._save_conversation_state(include_current=True)
         if messagebox.askyesno("Vídeo listo", "¿Quieres abrir el vídeo ahora?", parent=self):
             local.open_path(path)
 
@@ -4703,6 +4718,7 @@ class MainWindow(tk.Tk):
             except Exception:
                 pass
         try:
+            self._save_current_conversation()
             self._save_conversation_state(include_current=True)
         except Exception:
             pass
