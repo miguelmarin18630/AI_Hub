@@ -286,6 +286,9 @@ class MainWindow(tk.Tk):
         self.attachment: Path | None = None
         self.preview_photo = None
         self.history: list[dict] = []
+        self.conversations: list[dict] = []
+        self.current_conversation_id: str | None = None
+        self._loaded_conversation: dict | None = None
         self.history_key: tuple[str, str] | None = None
         self._pending_history = False
         self.statuses: dict = {}
@@ -324,6 +327,7 @@ class MainWindow(tk.Tk):
         self._update_statuses_ui()
         self._render_all()
         self._restore_conversation_model()
+        self._load_conversation_state()
         self._render_loaded_conversation()
 
         self.after(60, self._drain_queue)
@@ -332,9 +336,7 @@ class MainWindow(tk.Tk):
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.report_callback_exception = self._report_callback_error
         self.bind("<Control-f>", lambda _e: self._focus_search())
-        self.bind("<Control-p>", lambda _e: self._open_project_picker())
         self.bind("<F5>", lambda _e: self._refresh_clicked())
-        self.after(450, lambda: self._open_project_picker(startup=True))
 
     # -- construcción -------------------------------------------------------
 
@@ -384,9 +386,6 @@ class MainWindow(tk.Tk):
 
         right = tk.Frame(header, bg=PANEL)
         right.grid(row=0, column=2, sticky="e", padx=(0, 20))
-
-        self.btn_project = _button(right, "Proyecto", self._open_project_picker, kind="ghost", height=34)
-        self.btn_project.pack(side="left", padx=(0, 8))
 
         self.header_chip = tk.Label(
             right,
@@ -3445,6 +3444,11 @@ class MainWindow(tk.Tk):
             _button(row, label, command, kind="primary" if primary else "ghost", height=30, font_size=9).grid(
                 row=0, column=2, rowspan=2, sticky="e"
             )
+            if catalog.PROVIDER_BY_ID.get(pid, {}).get("custom"):
+                _button(
+                    row, "Editar", lambda pid=pid: self._open_edit_provider(pid),
+                    kind="ghost", height=28, font_size=9,
+                ).grid(row=0, column=3, rowspan=2, sticky="e", padx=(6, 0))
 
     def _provider_action(self, pid: str) -> tuple[str, object, bool]:
         if catalog.PROVIDER_BY_ID.get(pid, {}).get("custom"):
@@ -3472,6 +3476,139 @@ class MainWindow(tk.Tk):
         return "Comprobar", self._detect_statuses, False
 
     # -- proveedores añadidos por el usuario ----------------------------------
+
+    def _open_edit_provider(self, pid: str) -> None:
+        record = custom.get(self.cfg, pid)
+        if record is None:
+            messagebox.showerror("Editar proveedor", "Ese proveedor no existe.", parent=self)
+            return
+
+        win = tk.Toplevel(self)
+        win.title(f"Editar {record.get('name', pid)} · AI Hub")
+        win.configure(bg=BG)
+        win.transient(self)
+        win.grab_set()
+        win.resizable(False, True)
+        width, height = 520, min(self.winfo_screenheight() - 60, 440)
+        x = self.winfo_rootx() + (self.winfo_width() - width) // 2
+        y = self.winfo_rooty() + (self.winfo_height() - height) // 2
+        win.geometry(f"{width}x{height}+{max(0, x)}+{max(0, y)}")
+        win.bind("<Escape>", lambda _e: win.destroy())
+
+        container = tk.Frame(win, bg=BG, padx=24, pady=18)
+        container.pack(fill="both", expand=True)
+        container.columnconfigure(0, weight=1)
+
+        tk.Label(container, text="Editar proveedor", bg=BG, fg=TEXT, font=(FONT, 16, "bold")).grid(row=0, column=0, sticky="w")
+        tk.Label(container, text="Deja la clave vacía para no cambiarla.", bg=BG, fg=MUTED, font=(FONT, 9)).grid(
+            row=1, column=0, sticky="w", pady=(2, 12)
+        )
+
+        def field(row: int, title: str, var: tk.StringVar, show: str = "") -> tk.Entry:
+            tk.Label(container, text=title, bg=BG, fg=DIM, font=(FONT, 8, "bold")).grid(row=row * 2, column=0, sticky="w")
+            frame = tk.Frame(container, bg=INPUT, highlightbackground=BORDER, highlightthickness=1)
+            frame.grid(row=row * 2 + 1, column=0, sticky="ew", pady=(3, 8))
+            entry = tk.Entry(
+                frame, textvariable=var, show=show, bg=INPUT, fg=TEXT, insertbackground=TEXT,
+                relief="flat", bd=0, highlightthickness=0, font=(MONO, 9),
+            )
+            entry.pack(fill="x", padx=8, pady=7)
+            return entry
+
+        name_var = tk.StringVar(value=str(record.get("name") or ""))
+        base_var = tk.StringVar(value=str(record.get("base") or ""))
+        key_var = tk.StringVar(value="")
+        field(2, "NOMBRE", name_var)
+        field(3, "URL BASE", base_var)
+        field(4, "NUEVA CLAVE (opcional)", key_var, show="•")
+
+        cat_frame = tk.Frame(container, bg=BG)
+        cat_frame.grid(row=10, column=0, sticky="w", pady=(4, 8))
+        code_var = tk.BooleanVar(value="code" in (record.get("categories") or []))
+        media_var = tk.BooleanVar(value="media" in (record.get("categories") or []))
+        tk.Checkbutton(cat_frame, text="Programación", variable=code_var, bg=BG, fg=TEXT, selectcolor=PANEL, activebackground=BG).pack(side="left")
+        tk.Checkbutton(cat_frame, text="Imagen y vídeo", variable=media_var, bg=BG, fg=TEXT, selectcolor=PANEL, activebackground=BG).pack(side="left", padx=(12, 0))
+
+        status = tk.Label(container, text="", bg=BG, fg=MUTED, font=(FONT, 8), wraplength=480, justify="left", anchor="w")
+        status.grid(row=11, column=0, sticky="ew", pady=(0, 8))
+
+        buttons = tk.Frame(container, bg=BG)
+        buttons.grid(row=12, column=0, sticky="ew")
+        save_btn = _button(buttons, "Guardar y leer modelos", lambda: save(), kind="primary", height=34, bold=True)
+        save_btn.pack(side="right")
+        _button(buttons, "Cerrar", win.destroy, kind="ghost", height=34).pack(side="right", padx=(0, 8))
+
+        def save() -> None:
+            name = name_var.get().strip() or str(record.get("name") or pid)
+            base = base_var.get().strip().rstrip("/")
+            key = key_var.get().strip()
+            if not base:
+                status.configure(text="Escribe la URL base.", fg=RED)
+                return
+            if not re.match(r"^https?://", base):
+                status.configure(text="La URL debe empezar por http:// o https://", fg=RED)
+                return
+            cats = []
+            if code_var.get():
+                cats.append("code")
+            if media_var.get():
+                cats.append("media")
+            if not cats:
+                cats = ["code"]
+
+            records = custom.records(self.cfg)
+            target = next((r for r in records if r.get("id") == pid), None)
+            if target is None:
+                status.configure(text="Proveedor no encontrado.", fg=RED)
+                return
+            target["name"] = name
+            target["base"] = base
+            if key:
+                target["key"] = key
+            target["categories"] = cats
+
+            self.cfg["custom_providers"] = records
+            config.update_config(custom_providers=records)
+            custom.register(self.cfg)
+
+            status.configure(text="Guardando y leyendo los modelos…", fg=AMBER)
+            save_btn.configure(state="disabled")
+            result: dict = {}
+
+            def work() -> None:
+                try:
+                    result["models"] = custom.fetch(target)
+                except Exception as exc:  # noqa: BLE001
+                    result["error"] = str(exc)
+
+            threading.Thread(target=work, daemon=True).start()
+
+            def poll() -> None:
+                try:
+                    if not win.winfo_exists():
+                        return
+                except tk.TclError:
+                    return
+                if "models" in result:
+                    models = result["models"]
+                    catalog.store_models(pid, models)
+                    target["categories"] = custom.categories_of(models) or cats
+                    records2 = [r for r in custom.records(self.cfg) if r.get("id") != pid] + [target]
+                    self.cfg["custom_providers"] = records2
+                    config.update_config(custom_providers=records2)
+                    custom.register(self.cfg)
+                    self._refresh([pid], manual=True)
+                    status.configure(text="Proveedor actualizado.", fg=GREEN)
+                    save_btn.configure(state="normal")
+                    return
+                if "error" in result:
+                    status.configure(text=result["error"][:300], fg=RED)
+                    save_btn.configure(state="normal")
+                    return
+                win.after(200, poll)
+
+            win.after(200, poll)
+
 
     def _open_add_provider(self) -> None:
         current = getattr(self, "add_win", None)
@@ -3821,14 +3958,7 @@ class MainWindow(tk.Tk):
         return Path(raw) if raw else None
 
     def _update_project_button(self) -> None:
-        path = self._current_project()
-        if path is None:
-            self.btn_project.configure(text="Sin proyecto")
-            return
-        name = path.name or str(path)
-        if len(name) > 16:
-            name = name[:15] + "…"
-        self.btn_project.configure(text=f"Proyecto · {name}")
+        return
 
     def _set_project(self, path: Path) -> None:
         path = Path(path)
