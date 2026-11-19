@@ -304,6 +304,7 @@ class Handler(BaseHTTPRequestHandler):
                         "models": models,
                         "projects": _projects_payload(cfg),
                         "settings": _settings_payload(cfg),
+                        "favorites": cfg.get("favorite_models") or [],
                         "version": __version__,
                     }
                 )
@@ -444,6 +445,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path == "/api/video":
                 self._video()
+                return
+            if path == "/api/favorites":
+                self._favorites()
                 return
             if path == "/api/check":
                 self._check()
@@ -893,6 +897,22 @@ class Handler(BaseHTTPRequestHandler):
         )
 
     # -- ajustes y proveedores ---------------------------------------------
+
+    def _favorites(self) -> None:
+        if not self._require_user():
+            return
+        data = self._body()
+        cfg = config.load_config()
+        favorites = list(cfg.get("favorite_models") or [])
+        key = str(data.get("provider")) + ":" + str(data.get("uid"))
+        favorite = bool(data.get("favorite"))
+        if favorite:
+            if key not in favorites:
+                favorites.append(key)
+        else:
+            favorites = [item for item in favorites if item != key]
+        config.update_config(favorite_models=favorites)
+        self._send_json({"ok": True, "favorites": favorites})
 
     def _save_settings(self) -> None:
         if not self._require_user():

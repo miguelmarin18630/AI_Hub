@@ -306,6 +306,7 @@ async function loadCatalog() {
   state.models = data.models || [];
   state.projects = data.projects || [];
   state.settings = data.settings || state.settings;
+  state.favorites = data.favorites || [];
   const preferred = localStorage.getItem("aihub.model");
   if (preferred) {
     const [provider, uid] = preferred.split("::");
@@ -374,9 +375,13 @@ function renderModels() {
   const root = $("model-list");
   root.innerHTML = "";
   let items = state.models.filter(categoryMatches);
-  if (state.providerFilter) items = items.filter((item) => item.provider === state.providerFilter);
-  if (state.filter === "free") items = items.filter((item) => item.free);
-  if (state.filter === "paid") items = items.filter((item) => !item.free);
+  if (state.filter === "favorites") {
+    items = items.filter((item) => state.favorites.includes(`${item.provider}:${item.uid}`));
+  } else {
+    if (state.providerFilter) items = items.filter((item) => item.provider === state.providerFilter);
+    if (state.filter === "free") items = items.filter((item) => item.free);
+    if (state.filter === "paid") items = items.filter((item) => !item.free);
+  }
   if (state.search) {
     items = items.filter((item) =>
       (item.name + " " + item.uid + " " + (item.desc || "")).toLowerCase().includes(state.search)
@@ -436,7 +441,7 @@ function renderDetail() {
     $("quota-text").textContent = "";
     return;
   }
-  const tags = (model.tags || []).map((tag) => `<span class="tag">${esc(tag)}</span>`).join("");
+  const isFavorite = state.favorites.includes(`${model.provider}:${model.uid}`);
   root.innerHTML = `
     <div class="detail-title">
       <span class="model-glyph" style="color:${esc(model.provider_color)}">${esc(model.provider_glyph)}</span>
@@ -449,21 +454,27 @@ function renderDetail() {
     <div class="usage-dim">${esc(model.price_detail)}</div>
     <div class="detail-desc">${esc(model.desc || "")}</div>
     <div class="detail-tags">${tags}</div>
-    <div class="usage-dim" style="margin-top:8px">${esc(model.context_text)} contexto · ${esc(model.unit)}</div>`;
-  $("conv-title").textContent = model.name;
+    <div class="usage-dim" style="margin-top:8px">${esc(model.context_text)} contexto · ${esc(model.unit)}</div>
+    <div style="margin-top:10px">
+      <button id="btn-favorite" class="btn ghost small">${isFavorite ? "★ Favorito" : "☆ Favorito"}</button>
+    </div>`;
+  $("btn-favorite").addEventListener("click", toggleFavorite);  $("conv-title").textContent = model.name;
   $("conv-sub").textContent = `${model.provider_name} · ${model.price_text}`;
   loadUsage();
 }
 
-async function loadUsage() {
+async function toggleFavorite() {
   const model = state.selected;
   if (!model) return;
+  const key = `${model.provider}:${model.uid}`;
+  const isFavorite = state.favorites.includes(key);
   try {
-    const data = await api(`/api/usage?provider=${encodeURIComponent(model.provider)}&uid=${encodeURIComponent(model.uid)}`);
-    $("usage-text").textContent = data.text;
-    $("quota-text").textContent = "";
+    const data = await api("/api/favorites", { method: "POST", body: { provider: model.provider, uid: model.uid, favorite: !isFavorite } });
+    state.favorites = data.favorites || state.favorites;
+    renderDetail();
+    renderModels();
   } catch (exc) {
-    $("usage-text").textContent = "Sin consumo registrado.";
+    toast(exc.message, "error");
   }
 }
 
