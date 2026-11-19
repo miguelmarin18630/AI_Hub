@@ -825,7 +825,10 @@ async function openSettings(tab = "main") {
       <td><span style="color:${esc(item.color)}">${esc(item.glyph)}</span> ${esc(item.name)}</td>
       <td>${esc(item.base)}</td>
       <td>${item.key_set ? "guardada" : "sin clave"}</td>
-      <td class="user-actions"><button class="btn danger mini" data-delete-provider="${esc(item.id)}">Quitar</button></td>
+      <td class="user-actions">
+        <button class="btn ghost mini" data-edit-provider="${esc(item.id)}">Editar</button>
+        <button class="btn danger mini" data-delete-provider="${esc(item.id)}">Quitar</button>
+      </td>
     </tr>`).join("");
   const userRows = users.map((item) => `
     <tr>
@@ -961,6 +964,12 @@ async function openSettings(tab = "main") {
     } catch (exc) { toast(exc.message, "error"); }
   });
   root.addEventListener("click", async (event) => {
+    const editProvider = event.target.closest("[data-edit-provider]");
+    if (editProvider) {
+      closeModal();
+      await openEditProvider(editProvider.dataset.editProvider);
+      return;
+    }
     const deleteProvider = event.target.closest("[data-delete-provider]");
     if (deleteProvider) {
       try {
@@ -987,6 +996,47 @@ async function openSettings(tab = "main") {
         await api("/api/admin/users/delete", { method: "POST", body: { id: deleteUser.dataset.deleteUser } });
         await openSettings("admin");
       } catch (exc) { toast(exc.message, "error"); }
+    }
+  });
+}
+
+async function openEditProvider(id) {
+  const settings = await api("/api/settings").catch(() => null);
+  const provider = (settings?.custom_providers || []).find((item) => item.id === id);
+  if (!provider) { toast("Proveedor no encontrado.", "error"); return; }
+  openModal(`
+    <div class="modal-head"><h2>Editar proveedor</h2><button class="icon-btn" data-close>Cerrar ✕</button></div>
+    <section>
+      <div class="modal-row">
+        <input id="edit-name" type="text" value="${esc(provider.name)}" placeholder="Nombre">
+        <input id="edit-base" type="text" value="${esc(provider.base)}" placeholder="URL base">
+        <input id="edit-key" type="password" placeholder="Nueva clave (vacío = no cambiar)" autocomplete="off">
+      </div>
+      <div class="modal-row">
+        <label class="check"><input type="checkbox" id="edit-cat-code" ${ (provider.categories||[]).includes("code") ? "checked" : "" }> Programación</label>
+        <label class="check"><input type="checkbox" id="edit-cat-media" ${ (provider.categories||[]).includes("media") ? "checked" : "" }> Imagen y vídeo</label>
+        <button id="btn-save-provider" class="btn primary" style="flex:0 0 auto">Guardar y leer modelos</button>
+      </div>
+    </section>`);
+  document.querySelector("#modal-root [data-close]").addEventListener("click", closeModal);
+  document.querySelector("#btn-save-provider").addEventListener("click", async () => {
+    try {
+      const data = await api("/api/custom/update", {
+        method: "POST",
+        body: {
+          id: provider.id,
+          name: document.querySelector("#edit-name").value.trim(),
+          base: document.querySelector("#edit-base").value.trim(),
+          key: document.querySelector("#edit-key").value,
+          categories: [document.querySelector("#edit-cat-code").checked ? "code" : "", document.querySelector("#edit-cat-media").checked ? "media" : ""].filter(Boolean),
+        },
+      });
+      toast(data.error ? `Guardado, pero: ${data.error}` : "Proveedor actualizado.", "ok");
+      await loadCatalog();
+      closeModal();
+      await openSettings("main");
+    } catch (exc) {
+      toast(exc.message, "error");
     }
   });
 }

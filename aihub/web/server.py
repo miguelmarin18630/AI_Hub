@@ -425,6 +425,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/custom/add":
                 self._add_custom()
                 return
+            if path == "/api/custom/update":
+                self._update_custom()
+                return
             if path == "/api/custom/delete":
                 self._delete_custom()
                 return
@@ -958,6 +961,40 @@ class Handler(BaseHTTPRequestHandler):
         }
         records = custom.records(cfg)
         records.append(record)
+        config.update_config(custom_providers=records)
+        error = ""
+        try:
+            models = custom.fetch(record)
+            catalog.store_models(pid, models)
+        except Exception as exc:  # noqa: BLE001
+            error = str(exc)
+        self._send_json({"ok": True, "provider": record, "error": error})
+
+    def _update_custom(self) -> None:
+        if not self._require_user():
+            return
+        data = self._body()
+        pid = str(data.get("id") or "")
+        cfg = config.load_config()
+        records = custom.records(cfg)
+        record = next((item for item in records if item.get("id") == pid), None)
+        if record is None:
+            raise ValueError("Ese proveedor no existe.")
+        if "name" in data and str(data.get("name") or "").strip():
+            record["name"] = str(data["name"]).strip()
+        if "base" in data and str(data.get("base") or "").strip():
+            base = str(data["base"]).strip().rstrip("/")
+            if not re.match(r"^https?://", base):
+                raise ValueError("La URL debe empezar por http:// o https://")
+            record["base"] = base
+        if "key" in data and str(data.get("key") or "").strip() not in ("", "__keep__"):
+            record["key"] = str(data["key"]).strip()
+        if "categories" in data:
+            categories = data.get("categories") or []
+            if not isinstance(categories, list):
+                categories = ["code"]
+            categories = [item for item in categories if item in ("code", "media")] or ["code"]
+            record["categories"] = categories
         config.update_config(custom_providers=records)
         error = ""
         try:
