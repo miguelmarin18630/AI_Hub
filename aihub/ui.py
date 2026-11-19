@@ -305,7 +305,7 @@ class MainWindow(tk.Tk):
         if self.category not in ("code", "media"):
             self.category = "code"
 
-        self.title("AI Hub · chat con modelos de IA")
+        self.title(f"AI Hub v{__version__} · chat con modelos de IA")
         width = min(1440, self.winfo_screenwidth() - 60)
         height = min(880, self.winfo_screenheight() - 90)
         x = max(0, (self.winfo_screenwidth() - width) // 2)
@@ -371,7 +371,7 @@ class MainWindow(tk.Tk):
 
         text = tk.Frame(brand, bg=PANEL)
         text.pack(side="left")
-        title = tk.Label(text, text="AI HUB", bg=PANEL, fg=TEXT, font=(FONT, 14, "bold"))
+        title = tk.Label(text, text=f"AI HUB  ·  v{__version__}", bg=PANEL, fg=TEXT, font=(FONT, 14, "bold"))
         title.pack(anchor="w")
         sub = tk.Label(
             text,
