@@ -267,6 +267,7 @@ class MainWindow(tk.Tk):
         self.cfg = config.load_config()
         config.ensure_dirs()
         custom.register(self.cfg)
+        self.favorites = set(self.cfg.get("favorite_models") or [])
 
         self.q: queue.Queue = queue.Queue()
         self.refreshing = False
@@ -280,8 +281,6 @@ class MainWindow(tk.Tk):
         self.history: list[dict] = []
         self.history_key: tuple[str, str] | None = None
         self._pending_history = False
-        self.current_conversation_id = None
-        self._load_conversation_state()
         self.statuses: dict = {}
         self.access: dict = {}
         self._access_prompted = False
@@ -592,7 +591,7 @@ class MainWindow(tk.Tk):
         self.filter_box = ttk.Combobox(
             toolbar,
             textvariable=self.filter_var,
-            values=["Todos", "Gratis", "De pago"],
+            values=["Todos", "Gratis", "De pago", "Favoritos"],
             state="readonly",
             width=9,
             font=(FONT, 9),
@@ -966,6 +965,8 @@ class MainWindow(tk.Tk):
         self.detail_id.grid(row=0, column=0, sticky="w")
         self.btn_copy_id = _button(id_row, "copiar", self._copy_id, kind="link", height=0, font_size=8)
         self.btn_copy_id.grid(row=0, column=1, sticky="e")
+        self.btn_favorite = _button(id_row, "☆ Favorito", self._toggle_favorite, kind="link", height=0, font_size=8)
+        self.btn_favorite.grid(row=0, column=2, sticky="e", padx=(6, 0))
 
         self.detail_price = tk.Label(info, text="", bg=PANEL, fg=ACCENT, font=(FONT, 12, "bold"), anchor="w")
         self.detail_price.grid(row=3, column=0, sticky="ew", pady=(6, 0))
@@ -1294,10 +1295,17 @@ class MainWindow(tk.Tk):
             self._ensure_image_prices()
 
     def _models_for_view(self) -> list[catalog.Model]:
+        query = "" if self._placeholder_active else self.search_var.get()
+        if self.filter_var.get() == "Favoritos":
+            models = []
+            for models_list in self.catalogs.values():
+                for model in (models_list or []):
+                    if catalog.tab_of(model.category) == self.category and f"{model.provider}:{model.uid}" in self.favorites:
+                        models.append(model)
+            return catalog.filter_models(models, query, "Todos")
         models = [
             model for model in self.catalogs.get(self.provider, []) if catalog.tab_of(model.category) == self.category
         ]
-        query = "" if self._placeholder_active else self.search_var.get()
         return catalog.filter_models(models, query, self.filter_var.get())
 
     def _sort_mode(self) -> str:
@@ -1618,6 +1626,7 @@ class MainWindow(tk.Tk):
             self.detail_price_sub.configure(text="")
             self.detail_desc.configure(text="")
             self.btn_copy_id.grid_remove()
+            self.btn_favorite.grid_remove()
             self.btn_primary.configure(text="Usar modelo")
             self.btn_secondary.configure(text="Copiar comando")
             self.btn_third.configure(text="Copiar ID")
@@ -1634,6 +1643,11 @@ class MainWindow(tk.Tk):
             return
 
         self.btn_copy_id.grid()
+        self.btn_favorite.grid()
+        if self.selected is not None and f"{self.selected.provider}:{self.selected.uid}" in self.favorites:
+            self.btn_favorite.configure(text="★ Favorito")
+        else:
+            self.btn_favorite.configure(text="☆ Favorito")
         self.detail_name.configure(fg=TEXT)
 
         provider_name = catalog.PROVIDER_BY_ID[model.provider]["name"]
@@ -2819,6 +2833,20 @@ class MainWindow(tk.Tk):
             self.history_key = (provider, uid)
             self._update_detail()
             self._ensure_visible_category()
+
+    def _toggle_favorite(self) -> None:
+        model = self.selected
+        if model is None:
+            return
+        key = f"{model.provider}:{model.uid}"
+        if key in self.favorites:
+            self.favorites.discard(key)
+        else:
+            self.favorites.add(key)
+        self.cfg["favorite_models"] = sorted(self.favorites)
+        config.update_config(favorite_models=self.cfg["favorite_models"])
+        self._update_detail()
+        self._render_list()
 
     def _record_usage(self, key, *, cost: float = 0.0, images: int = 0, videos: int = 0, usage_data: dict | None = None) -> None:
         """Suma el uso de una respuesta al consumo guardado del modelo."""
