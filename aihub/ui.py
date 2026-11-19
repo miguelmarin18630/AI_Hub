@@ -4394,14 +4394,26 @@ class MainWindow(tk.Tk):
         return result["user"]
 
     def _on_close(self) -> None:
-        self.cancel_event.set()
+        try:
+            self.cancel_event.set()
+        except Exception:
+            pass
         if self.proc is not None:
             try:
                 self.proc.terminate()
             except Exception:
                 pass
-        self._save_conversation_state(include_current=True)
-        self.destroy()
+        try:
+            self._save_conversation_state(include_current=True)
+        except Exception:
+            pass
+        try:
+            self.destroy()
+        except Exception:
+            try:
+                self.quit()
+            except Exception:
+                pass
 
 
 def run() -> None:
