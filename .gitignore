@@ -21,3 +21,5 @@ Thumbs.db
 
 # Copias anidadas / backups accidentales
 AI_HUB_v*/
+
+.ruff_cache/
