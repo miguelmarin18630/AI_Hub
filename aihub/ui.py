@@ -189,6 +189,17 @@ def _setup_style(root: tk.Misc) -> None:
         width=10,
     )
     style.map("AIH.Vertical.TScrollbar", background=[("active", "#2f3748")])
+    style.configure(
+        "AIH.Horizontal.TScrollbar",
+        background=PANEL_3,
+        troughcolor=PANEL,
+        bordercolor=PANEL,
+        arrowcolor=MUTED,
+        darkcolor=PANEL_3,
+        lightcolor=PANEL_3,
+        width=12,
+    )
+    style.map("AIH.Horizontal.TScrollbar", background=[("active", "#2f3748")])
 
 
 # ---------------------------------------------------------------------------
@@ -660,7 +671,7 @@ class MainWindow(tk.Tk):
         )
         self.tree.heading("name", text="MODELO", anchor="w")
         self.tree.heading("price", text="PRECIO (USD / 1M)", anchor="e")
-        self.tree.column("name", width=260, minwidth=160, stretch=True)
+        self.tree.column("name", width=320, minwidth=200, stretch=False)
         self.tree.column("price", width=170, minwidth=120, stretch=False, anchor="e")
         self.tree.grid(row=0, column=0, sticky="nsew")
         self.tree.tag_configure("free", foreground=GREEN)
@@ -674,7 +685,7 @@ class MainWindow(tk.Tk):
         scroll.grid(row=0, column=1, sticky="ns")
         self.tree.configure(yscrollcommand=scroll.set)
         hscroll = ttk.Scrollbar(
-            table_frame, orient="horizontal", command=self.tree.xview, style="AIH.Vertical.TScrollbar"
+            table_frame, orient="horizontal", command=self.tree.xview, style="AIH.Horizontal.TScrollbar"
         )
         hscroll.grid(row=1, column=0, sticky="ew")
         self.tree.configure(xscrollcommand=hscroll.set)
