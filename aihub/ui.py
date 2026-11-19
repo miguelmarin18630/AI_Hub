@@ -2408,7 +2408,10 @@ class MainWindow(tk.Tk):
             self.q.put(("line", text, tag))
 
         if root is None:
-            self.q.put(("error", "Elige un proyecto para que el modelo lea y escriba archivos."))
+            if model.provider == "ollama":
+                self._ollama_worker(model, prompt, None)
+            else:
+                self._openrouter_worker(model, prompt, None)
             return
 
         if model.provider == "ollama":
@@ -2586,24 +2589,39 @@ class MainWindow(tk.Tk):
 
     def _cli_worker(self, model: catalog.Model, prompt: str) -> None:
         started = time.time()
+        collected: list[str] = []
 
         def on_line(line: str) -> None:
+            collected.append(line)
             self.q.put(("line", line))
 
         def register(proc) -> None:
             self.proc = proc
 
+        # Mantener el contexto de la conversación: se envía el historial previo
+        # (sin el mensaje actual, que ya está al final) al CLI.
+        prior = [m for m in self.history if m.get("role") in ("user", "assistant")]
+        # Excluye el último mensaje de usuario (el prompt actual) para no duplicarlo.
+        if prior and prior[-1].get("role") == "user":
+            prior = prior[:-1]
+        history_text = ""
+        for m in prior:
+            role = "Usuario" if m.get("role") == "user" else "Asistente"
+            history_text += f"{role}: {str(m.get('content') or '').strip()}\n\n"
+        full_prompt = (history_text + prompt) if history_text else prompt
+
         try:
             local.run_prompt(
                 model.provider,
                 model.uid,
-                prompt,
+                full_prompt,
                 self.cfg["workdir"],
                 on_line,
                 self.cancel_event.is_set,
                 register,
             )
-            self.q.put(("chat_done", "", {}, time.time() - started, (model.provider, model.uid)))
+            reply = "\n".join(collected).strip()
+            self.q.put(("chat_done", reply, {}, time.time() - started, (model.provider, model.uid)))
         except Exception as exc:  # noqa: BLE001
             self.q.put(("error", str(exc)))
 
