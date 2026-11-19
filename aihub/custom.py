@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 
-from . import api, catalog, config
+from . import api, catalog
 
 PRESETS = [
     {"id": "openai", "name": "OpenAI", "base": "https://api.openai.com/v1", "glyph": "◎", "color": "#10a37f",
@@ -70,49 +70,13 @@ _OPENAI_PRICES = {
 
 
 def _openai_price(model_id: str) -> tuple[float | None, float | None]:
+    """Precio de referencia (USD por 1M tokens). Gana la clave más larga:
+    «gpt-4o-mini» debe usar su tarifa y no la de «gpt-4o»."""
     low = model_id.lower()
-    for key, (pin, pout) in _OPENAI_PRICES.items():
+    for key in sorted(_OPENAI_PRICES, key=len, reverse=True):
         if key in low:
-            return pin, pout
+            return _OPENAI_PRICES[key]
     return None, None
-    """Determina si un modelo de proveedor personalizado es gratuito.
-
-    Reglas por proveedor basadas en substrings del nombre del modelo.
-    Se marcan como gratuit los modelos que los proveedores suelen ofrecer
-    en sus planes free / quota diario.
-    """
-    low = model_id.lower()
-
-    # --- OpenAI ---
-    # La API de OpenAI no tiene nivel gratuito: todos sus modelos (gpt-3.5,
-    # gpt-4o-mini, etc.) se cobran contra el saldo de la cuenta. Los nuevos
-    # proyectos pueden tener créditos de prueba, pero eso no es "gratis".
-    if any(sub in low for sub in ["gpt-", "o1-", "o3-", "o4-", "davinci", "text-embedding"]):
-        return False
-
-    # --- Google Gemini ---
-    # Los de -flash suelen tener quota gratuito diario
-    if any(sub in low for sub in ["flash", "1.5-flash"]):
-        return True
-
-    # --- DeepSeek ---
-    # Los modelos -code, -coder y -distill suelen tener free tier
-    if any(sub in low for sub in ["-code", "-coder", "-distill"]):
-        return True
-
-    # --- Groq ---
-    # No tiene free tier para modelos de chat
-    if "groq" in low:
-        return False
-
-    # --- Mistral ---
-    # Los de -instruct y -small suelen ser gratuitos o tener trial
-    if any(sub in low for sub in ["-instruct", "-small", "-v0.1"]):
-        return True
-
-    # --- Together AI ---
-    # Por defecto pago
-    return False
 
 
 def records(cfg: dict) -> list[dict]:

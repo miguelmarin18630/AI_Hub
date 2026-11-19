@@ -258,7 +258,8 @@ def open_path(path: str | Path) -> None:
         if path.is_dir():
             os.startfile(str(path))  # type: ignore[attr-defined]
         elif path.exists():
-            subprocess.Popen(["explorer", "/select,", str(path)])
+            # El Explorador exige la ruta pegada a /select, (sin espacio entre ambos).
+            subprocess.Popen(["explorer", f"/select,{path}"])
         else:
             os.startfile(str(path.parent))  # type: ignore[attr-defined]
         return

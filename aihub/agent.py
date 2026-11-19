@@ -101,6 +101,11 @@ class ToolError(Exception):
     """Error controlado que se devuelve al modelo como resultado."""
 
 
+def _inside_git(path: Path) -> bool:
+    """True si la ruta está dentro de .git (sin distinguir mayúsculas: Windows es insensible)."""
+    return any(part.lower() == ".git" for part in path.parts)
+
+
 def _resolve(root: Path, raw: str | None) -> Path:
     root = root.resolve()
     text = str(raw or "").strip().strip('"')
@@ -183,7 +188,7 @@ def read_file(root: Path, path: str) -> tuple[str, str]:
 
 def write_file(root: Path, path: str, content: str) -> tuple[str, str]:
     file = _resolve(root, path)
-    if ".git" in file.parts:
+    if _inside_git(file):
         raise ToolError("No se escribe dentro de .git")
     if file.is_dir():
         raise ToolError(f"Es una carpeta: {_relative(root, file)}")
@@ -203,20 +208,31 @@ def write_file(root: Path, path: str, content: str) -> tuple[str, str]:
 
 def replace_in_file(root: Path, path: str, old: str, new: str) -> tuple[str, str]:
     file = _resolve(root, path)
-    if ".git" in file.parts:
+    if _inside_git(file):
         raise ToolError("No se escribe dentro de .git")
     if not file.is_file():
         raise ToolError(f"No existe el archivo: {_relative(root, file)}")
     if not old:
         raise ToolError("El texto a sustituir está vacío.")
+    # newline="" conserva los finales de línea originales (CRLF en Windows). Si el
+    # archivo usa CRLF en todas sus líneas, se trabaja en LF y se restauran al escribir;
+    # así el modelo puede dar fragmentos con \n y no se reescribe todo el archivo.
     try:
-        text = file.read_text(encoding="utf-8")
+        with file.open("r", encoding="utf-8", newline="") as handle:
+            text = handle.read()
     except (OSError, UnicodeDecodeError) as exc:
         raise ToolError(f"No se pudo leer el archivo: {exc}") from None
+    crlf = "\r\n" in text and text.count("\r\n") == text.count("\n")
+    if crlf:
+        text = text.replace("\r\n", "\n")
+        old = old.replace("\r\n", "\n")
+        new = new.replace("\r\n", "\n")
     count = text.count(old)
     if count == 0:
         raise ToolError("No se encontró el texto indicado en el archivo.")
     updated = text.replace(old, new)
+    if crlf:
+        updated = updated.replace("\n", "\r\n")
     try:
         file.write_text(updated, encoding="utf-8", newline="")
     except OSError as exc:

@@ -7,6 +7,7 @@ import json
 import os
 import queue
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -54,6 +55,8 @@ IMAGE_TYPES = {
 }
 
 MAX_TEXT_CHARS = 60_000
+# Porcentaje de «ollama pull», p. ej. "pulling 8934d96d3f08...  45% ▕██▏"
+PULL_PERCENT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%")
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 TOOL_RESULT_LIMIT = 12_000  # caracteres de cada resultado de herramienta que ve el modelo
 
@@ -71,8 +74,13 @@ def _attachment_kind(path: Path) -> str:
 
 
 def _read_text_file(path: Path) -> tuple[str, bool]:
-    text = path.read_bytes().decode("utf-8", "replace")
-    if len(text) > MAX_TEXT_CHARS:
+    # Solo se lee lo que se va a enviar (UTF-8: como mucho 4 bytes por carácter),
+    # para no cargar en memoria archivos de cientos de MB.
+    limit = MAX_TEXT_CHARS * 4
+    with path.open("rb") as handle:
+        raw = handle.read(limit + 1)
+    text = raw[:limit].decode("utf-8", "replace")
+    if len(raw) > limit or len(text) > MAX_TEXT_CHARS:
         return text[:MAX_TEXT_CHARS], True
     return text, False
 
@@ -1501,7 +1509,6 @@ class MainWindow(tk.Tk):
         index = self.tree.index(selection[0])
         if 0 <= index < len(self.visible):
             model = self.visible[index]
-            changed = not self.selected or (self.selected.uid, self.selected.provider) != (model.uid, model.provider)
             self.selected = model
             self._update_detail()
 
@@ -1981,51 +1988,72 @@ class MainWindow(tk.Tk):
             if success:
                 self._launch_terminal(model)
 
+        # El hilo de descarga no toca widgets de Tk: solo deja mensajes en esta
+        # cola y el sondeo (en el hilo principal) actualiza la ventana.
+        progress: queue.Queue = queue.Queue()
+
         def work() -> None:
             try:
                 exe = local.which("ollama") or "ollama"
-                cmd = [exe, "pull", model.uid]
                 env = dict(os.environ)
                 env.setdefault("NO_COLOR", "1")
                 env.setdefault("CLICOLOR", "0")
-                options = dict(
-                    cwd=self.cfg["workdir"],
-                    stdin=subprocess.PIPE,
+                # Sin proyecto el workdir está vacío: usa la carpeta personal.
+                workdir = str(self.cfg.get("workdir") or "")
+                if not Path(workdir).is_dir():
+                    workdir = str(Path.home())
+                proc = subprocess.Popen(
+                    [exe, "pull", model.uid],
+                    cwd=workdir,
+                    env=env,
+                    stdin=subprocess.DEVNULL,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
                     encoding="utf-8",
                     errors="replace",
                     bufsize=1,
+                    creationflags=local.CREATE_NO_WINDOW if os.name == "nt" else 0,
                 )
-                proc = subprocess.Popen(cmd, **options)
                 for line in proc.stdout:
-                    # Buscar porcentaje en líneas como " 12%" o "12 %"
-                    m = re.search(r"(\d+)%?", line.strip())
-                    if m:
-                        pct = int(m.group(1))
-                        # Limitar a 0-100
-                        pct = max(0, min(100, pct))
-                        bar["value"] = pct
-                        status.config(text=f"{pct} %")
-                        prog.update_idletasks()
-                    else:
-                        # Mostrar líneas sueltas sin bloquear
-                        if not self.busy:
-                            self._out(line, "prompt")
-                proc.wait()
-                close_and_finish(True, f"Modelo «{model.name}» descargado")
+                    progress.put(("line", line))
+                    # Solo se toma un número seguido de % (p. ej. "45%"); sin el símbolo,
+                    # los dígitos de los hashes de capa se leerían como progreso.
+                    match = PULL_PERCENT_RE.search(line)
+                    if match:
+                        progress.put(("pct", max(0.0, min(100.0, float(match.group(1))))))
+                code = proc.wait()
+                if code == 0:
+                    progress.put(("done", True, f"Modelo «{model.name}» descargado"))
+                else:
+                    progress.put(("done", False, f"No se pudo descargar «{model.name}» (código {code})"))
             except Exception as exc:  # noqa: BLE001
-                close_and_finish(False, f"No se pudo descargar: {exc}")
+                progress.put(("done", False, f"No se pudo descargar: {exc}"))
 
-        def thread() -> None:
-            t = threading.Thread(target=work, daemon=True)
-            t.start()
-            prog.after(100, lambda: None)  # permitir que la UI se actualice
+        def poll() -> None:
+            try:
+                if not prog.winfo_exists():
+                    return
+            except tk.TclError:
+                return
+            while True:
+                try:
+                    item = progress.get_nowait()
+                except queue.Empty:
+                    break
+                if item[0] == "pct":
+                    bar["value"] = item[1]
+                    status.config(text=f"{int(item[1])} %")
+                elif item[0] == "line":
+                    if not self.busy:
+                        self._out(item[1], "prompt")
+                elif item[0] == "done":
+                    close_and_finish(item[1], item[2])
+                    return
+            prog.after(100, poll)
 
-        bar.config(command=lambda: None)  # placeholder para futura animación
-        prog.after(50, thread)
-        prog.mainloop()
+        threading.Thread(target=work, daemon=True).start()
+        prog.after(100, poll)
 
     def _open_last_file(self) -> None:
         if self.last_path and self.last_path.exists():
@@ -2270,8 +2298,6 @@ class MainWindow(tk.Tk):
         key = (model.provider, model.uid)
         # El historial se mantiene al cambiar de modelo o proveedor: solo se
         # reinicia con «Nuevo chat». Así se puede seguir la conversación.
-        if self.history_key is None:
-            self.history_key = key
         self.history_key = key
         note = ""
         if image_b64 is not None and attachment is not None:
@@ -3837,6 +3863,9 @@ class MainWindow(tk.Tk):
         custom.register(self.cfg)
         self.catalogs.pop(pid, None)
         catalog.store_models(pid, [])
+        # Un modelo de ese proveedor seleccionado dejaría de tener proveedor válido.
+        if self.selected is not None and self.selected.provider == pid:
+            self.selected = None
         if self.provider == pid:
             supported = self._providers_for(self.category) or ["opencode"]
             self._select_provider(supported[0])

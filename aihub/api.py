@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import base64
 import json
-import os
 import re
 import shutil
 import time
@@ -163,6 +162,9 @@ def request_json(
         raise ApiError(f"Sin conexión: {reason}") from None
     except TimeoutError:
         raise ApiError("La petición ha tardado demasiado (timeout).") from None
+    except ValueError:
+        # Respuesta que no es JSON (p. ej. una página de error de un proxy o una URL mal puesta).
+        raise ApiError("La respuesta del servidor no es JSON. Revisa la URL del proveedor.") from None
 
 
 # ---------------------------------------------------------------------------
