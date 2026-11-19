@@ -224,11 +224,14 @@ function bindEvents() {
     });
   });
 
-  $("provider-select").addEventListener("change", (event) => {
-    state.providerFilter = event.target.value || null;
-    savePrefs();
-    renderProviders();
-    renderModels();
+  $("provider-current").addEventListener("click", () => {
+    const menu = $("provider-menu");
+    menu.hidden = !menu.hidden;
+  });
+  document.addEventListener("click", (event) => {
+    const select = $("provider-select");
+    if (!select || select.contains(event.target)) return;
+    $("provider-menu").hidden = true;
   });
 
   $("model-list").addEventListener("click", (event) => {
@@ -347,8 +350,9 @@ function categoryMatches(model) {
 }
 
 function renderProviders() {
-  const select = $("provider-select");
-  select.innerHTML = "";
+  const current = $("provider-current");
+  const menu = $("provider-menu");
+  if (!current || !menu) return;
   const counts = {};
   for (const model of state.models) {
     if (!categoryMatches(model)) continue;
@@ -356,19 +360,36 @@ function renderProviders() {
     counts[model.provider].total += 1;
     if (model.free) counts[model.provider].free += 1;
   }
-  const optionAll = document.createElement("option");
-  optionAll.value = "";
-  optionAll.textContent = "Todos los proveedores";
-  select.appendChild(optionAll);
+  const active = state.providers.find((item) => item.id === state.providerFilter);
+  current.innerHTML = active
+    ? `<span class="provider-logo" style="background:${esc(active.color)}">${esc(active.glyph)}</span> <span>${esc(active.name)}</span>`
+    : "Todos los proveedores";
+  menu.innerHTML = "";
+  const all = document.createElement("button");
+  all.type = "button";
+  all.className = "provider-item" + (state.providerFilter ? "" : " active");
+  all.innerHTML = `<span class="provider-logo" style="background:var(--panel-3)">＋</span> <span>Todos los proveedores</span>`;
+  all.addEventListener("click", () => selectProvider(null));
+  menu.appendChild(all);
   for (const provider of state.providers) {
     const count = counts[provider.id];
     if (!count) continue;
-    const option = document.createElement("option");
-    option.value = provider.id;
-    option.textContent = `${provider.name} (${count.free}/${count.total})`;
-    select.appendChild(option);
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "provider-item" + (state.providerFilter === provider.id ? " active" : "");
+    item.innerHTML = `<span class="provider-logo" style="background:${esc(provider.color)}">${esc(provider.glyph)}</span>
+      <span>${esc(provider.name)}</span> <small>${count.free}/${count.total}</small>`;
+    item.addEventListener("click", () => selectProvider(provider.id));
+    menu.appendChild(item);
   }
-  select.value = state.providerFilter || "";
+}
+
+function selectProvider(id) {
+  state.providerFilter = id || null;
+  savePrefs();
+  renderProviders();
+  renderModels();
+  $("provider-menu").hidden = true;
 }
 
 function renderModels() {

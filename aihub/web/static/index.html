@@ -6,7 +6,7 @@
   <title>AI Hub · chat con modelos de IA</title>
   <meta name="description" content="Chat con modelos de IA gratuitos y baratos: OpenCode, Claude Code, Ollama y OpenRouter.">
   <link rel="icon" href="/favicon.ico" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/styles.css?v=7">
+  <link rel="stylesheet" href="/static/styles.css?v=8">
 </head>
 <body>
   <div id="app" hidden>
@@ -39,7 +39,10 @@
           <span class="side-title">PROVEEDOR</span>
           <button id="btn-collapse" class="icon-btn" title="Ocultar panel">◀</button>
         </div>
-        <select id="provider-select" class="select" title="Proveedor"></select>
+        <div class="provider-select" id="provider-select">
+          <button type="button" id="provider-current" class="provider-current">Todos los proveedores</button>
+          <div id="provider-menu" class="provider-menu" hidden></div>
+        </div>
 
         <div class="tabs" id="tabs">
           <button class="tab" data-category="code">Programación</button>
@@ -197,6 +200,6 @@
   <div id="modal-root"></div>
   <div id="toast-root"></div>
 
-  <script src="/static/app.js?v=5"></script>
+  <script src="/static/app.js?v=6"></script>
 </body>
 </html>

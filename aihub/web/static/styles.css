@@ -168,6 +168,59 @@ label > input, label > select { margin-top: 4px; }
   max-height: 160px;
   overflow-y: auto;
 }
+.provider-select { position: relative; }
+.provider-current {
+  width: 100%;
+  text-align: left;
+  background: var(--input);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 9px;
+  cursor: pointer;
+}
+.provider-current:hover { border-color: var(--accent); }
+.provider-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+  box-shadow: var(--shadow);
+}
+.provider-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: var(--text);
+  border: 0;
+  border-radius: 7px;
+  padding: 7px 8px;
+  cursor: pointer;
+}
+.provider-item:hover, .provider-item.active { background: var(--panel-2); }
+.provider-item .provider-logo {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+.provider-item small { margin-left: auto; color: var(--muted); }
+
 .provider-pill {
   flex: 0 0 auto;
   border: 1px solid var(--border);
