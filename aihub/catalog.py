@@ -11,7 +11,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from . import api, config, local
+from . import __version__, api, config, local
 
 CACHE_VERSION = 4
 
@@ -279,13 +279,17 @@ _cache_data: dict[str, dict] = {}
 
 
 def _empty_cache() -> dict:
-    return {"version": CACHE_VERSION, "providers": {}, "image_prices": {}}
+    return {"version": CACHE_VERSION, "app_version": __version__, "providers": {}, "image_prices": {}}
 
 
 def _read_cache() -> dict:
     try:
         raw = json.loads(config.cache_path().read_text(encoding="utf-8"))
-        if isinstance(raw, dict) and raw.get("version") == CACHE_VERSION:
+        if (
+            isinstance(raw, dict)
+            and raw.get("version") == CACHE_VERSION
+            and raw.get("app_version") == __version__
+        ):
             raw.setdefault("providers", {})
             raw.setdefault("image_prices", {})
             return raw

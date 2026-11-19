@@ -2958,6 +2958,8 @@ class MainWindow(tk.Tk):
         self._out(f"✓ Listo{self._usage_suffix(usage_data, elapsed)}\n", "ok")
         self._set_busy(False)
         self._refresh_files()
+        self.attachment = None
+        self._update_attachment_ui()
 
     def _on_agent_done(
         self,
