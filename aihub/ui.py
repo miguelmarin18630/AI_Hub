@@ -638,8 +638,8 @@ class MainWindow(tk.Tk):
         )
         self.tree.heading("name", text="MODELO", anchor="w")
         self.tree.heading("price", text="PRECIO (USD / 1M)", anchor="e")
-        self.tree.column("name", width=210, minwidth=120, stretch=True)
-        self.tree.column("price", width=150, minwidth=100, stretch=False, anchor="e")
+        self.tree.column("name", width=260, minwidth=160, stretch=True)
+        self.tree.column("price", width=170, minwidth=120, stretch=False, anchor="e")
         self.tree.grid(row=0, column=0, sticky="nsew")
         self.tree.tag_configure("free", foreground=GREEN)
         self.tree.tag_configure("paid", foreground=TEXT)
@@ -651,6 +651,11 @@ class MainWindow(tk.Tk):
         )
         scroll.grid(row=0, column=1, sticky="ns")
         self.tree.configure(yscrollcommand=scroll.set)
+        hscroll = ttk.Scrollbar(
+            table_frame, orient="horizontal", command=self.tree.xview, style="AIH.Vertical.TScrollbar"
+        )
+        hscroll.grid(row=1, column=0, sticky="ew")
+        self.tree.configure(xscrollcommand=hscroll.set)
         self.tree.bind("<<TreeviewSelect>>", self._on_tree_select)
         self.tree.bind("<Double-1>", lambda _e: self._primary_action())
         self.tree.bind("<Return>", lambda _e: self._primary_action())
