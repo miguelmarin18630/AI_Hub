@@ -153,6 +153,28 @@ def register(cfg: dict) -> None:
     catalog.PROVIDER_BY_ID.update({item["id"]: item for item in catalog.PROVIDERS})
 
 
+def _is_free_model(model_id: str) -> bool:
+    """Heurística para marcar modelos gratuitos de proveedores OpenAI-compatibles.
+
+    Un modelo se considera gratis si su id contiene algún marcador típico de
+    nivel gratuito. En caso de duda se marca como de pago (no se promete
+    gratuidad falsa).
+    """
+    text = str(model_id or "").lower()
+    if "free" in text or ":free" in text:
+        return True
+    # DeepSeek: niveles gratuitos de código/destilación.
+    if "distill" in text or "coder" in text or text.endswith("-code") or "-code-" in text:
+        return True
+    # Mistral: variantes instruct/small de prueba.
+    if "instruct" in text or "-small" in text or "v0.1" in text:
+        return True
+    # Google Gemini: flash tiene cuota gratuita.
+    if "flash" in text:
+        return True
+    return False
+
+
 def fetch(record: dict, timeout: int = 30) -> list[catalog.Model]:
     """Lista los modelos del proveedor y los convierte en modelos del catálogo."""
     base = str(record.get("base") or "").strip().rstrip("/")
