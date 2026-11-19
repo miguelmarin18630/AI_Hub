@@ -3381,9 +3381,26 @@ class MainWindow(tk.Tk):
             font=(FONT, 9),
         ).grid(row=1, column=0, sticky="w", pady=(3, 14))
 
-        rows = tk.Frame(container, bg=BG)
-        rows.grid(row=2, column=0, sticky="nsew")
+        canvas = tk.Canvas(container, bg=BG, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview, style="AIH.Vertical.TScrollbar")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.grid(row=2, column=0, sticky="nsew")
+        scrollbar.grid(row=2, column=1, sticky="ns")
+        container.columnconfigure(1, weight=0)
+        rows = tk.Frame(canvas, bg=BG)
+        canvas.create_window((0, 0), window=rows, anchor="nw")
         rows.columnconfigure(0, weight=1)
+
+        def _on_rows_configure(_event=None) -> None:
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        rows.bind("<Configure>", _on_rows_configure)
+
+        def _on_wheel(event) -> None:
+            canvas.yview_scroll(int(-event.delta / 120), "units")
+
+        canvas.bind("<MouseWheel>", _on_wheel)
+        rows.bind("<MouseWheel>", _on_wheel)
 
         footer = tk.Frame(container, bg=BG)
         footer.grid(row=3, column=0, sticky="ew", pady=(16, 0))
