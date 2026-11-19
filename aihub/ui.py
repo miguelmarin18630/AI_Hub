@@ -2672,8 +2672,11 @@ class MainWindow(tk.Tk):
         self._out(f"✕ {message}\n", "err")
         self._set_busy(False)
         self._set_status(message[:150])
-        self._save_current_conversation()
-        self._save_conversation_state(include_current=True)
+        try:
+            self._save_current_conversation()
+            self._save_conversation_state(include_current=True)
+        except Exception:
+            pass
 
     def _stop(self) -> None:
         self.cancel_event.set()
@@ -3059,15 +3062,20 @@ class MainWindow(tk.Tk):
         return "break"
 
     def _on_chat_done(self, reply: str, usage_data: dict, elapsed: float, key=None) -> None:
-        self._record_usage(key, usage_data=usage_data)
-        self._commit_history(key, reply, None)
-        self._out(f"✓ Listo{self._usage_suffix(usage_data, elapsed)}\n", "ok")
-        self._set_busy(False)
-        self._refresh_files()
-        self.attachment = None
-        self._update_attachment_ui()
-        self._save_current_conversation()
-        self._save_conversation_state(include_current=True)
+        try:
+            self._record_usage(key, usage_data=usage_data)
+            self._commit_history(key, reply, None)
+            self._out(f"✓ Listo{self._usage_suffix(usage_data, elapsed)}\n", "ok")
+            self._refresh_files()
+            self.attachment = None
+            self._update_attachment_ui()
+        finally:
+            self._set_busy(False)
+            try:
+                self._save_current_conversation()
+                self._save_conversation_state(include_current=True)
+            except Exception:
+                pass
 
     def _on_agent_done(
         self,
@@ -3079,45 +3087,60 @@ class MainWindow(tk.Tk):
         transcript=None,
     ) -> None:
         touched = touched or []
-        self._record_usage(key, usage_data=usage)
-        self._commit_history(key, reply, transcript)
-        for path in touched:
-            if path not in self.touched_files:
-                self.touched_files.append(path)
-        self._out(f"✓ Listo{self._usage_suffix(usage, elapsed)}\n", "ok")
-        if touched:
-            self._out("✓ Archivos modificados: " + ", ".join(touched) + "\n", "ok")
-        self._set_busy(False)
-        self._refresh_files()
-        self._set_status(
-            f"Listo · {len(touched)} archivo(s) modificados" if touched else "Listo · sin cambios en archivos"
-        )
-        self._save_current_conversation()
-        self._save_conversation_state(include_current=True)
+        try:
+            self._record_usage(key, usage_data=usage)
+            self._commit_history(key, reply, transcript)
+            for path in touched:
+                if path not in self.touched_files:
+                    self.touched_files.append(path)
+            self._out(f"✓ Listo{self._usage_suffix(usage, elapsed)}\n", "ok")
+            if touched:
+                self._out("✓ Archivos modificados: " + ", ".join(touched) + "\n", "ok")
+            self._refresh_files()
+            self._set_status(
+                f"Listo · {len(touched)} archivo(s) modificados" if touched else "Listo · sin cambios en archivos"
+            )
+        finally:
+            self._set_busy(False)
+            try:
+                self._save_current_conversation()
+                self._save_conversation_state(include_current=True)
+            except Exception:
+                pass
 
     def _on_image(self, path: str, cost, elapsed: float, key=None) -> None:
-        self._record_usage(key, cost=cost or 0.0, images=1)
-        self.last_path = Path(path)
-        self._out(f"\n✓ Imagen guardada: {path}", "ok")
-        if cost:
-            self._out(f" · coste ${cost:.4f}", "dim")
-        self._out(f" · {elapsed:.1f} s\n", "dim")
-        self._show_preview(Path(path))
-        _set_enabled(self.btn_open_file, True)
-        self._set_busy(False)
-        self._set_status("Imagen generada")
-        self._save_current_conversation()
-        self._save_conversation_state(include_current=True)
+        try:
+            self._record_usage(key, cost=cost or 0.0, images=1)
+            self.last_path = Path(path)
+            self._out(f"\n✓ Imagen guardada: {path}", "ok")
+            if cost:
+                self._out(f" · coste ${cost:.4f}", "dim")
+            self._out(f" · {elapsed:.1f} s\n", "dim")
+            self._show_preview(Path(path))
+            _set_enabled(self.btn_open_file, True)
+            self._set_status("Imagen generada")
+        finally:
+            self._set_busy(False)
+            try:
+                self._save_current_conversation()
+                self._save_conversation_state(include_current=True)
+            except Exception:
+                pass
 
     def _on_video(self, path: str, elapsed: float, key=None) -> None:
-        self._record_usage(key, videos=1)
-        self.last_path = Path(path)
-        self._out(f"\n✓ Vídeo guardado: {path} · {elapsed:.0f} s\n", "ok")
-        _set_enabled(self.btn_open_file, True)
-        self._set_busy(False)
-        self._set_status("Vídeo generado")
-        self._save_current_conversation()
-        self._save_conversation_state(include_current=True)
+        try:
+            self._record_usage(key, videos=1)
+            self.last_path = Path(path)
+            self._out(f"\n✓ Vídeo guardado: {path} · {elapsed:.0f} s\n", "ok")
+            _set_enabled(self.btn_open_file, True)
+            self._set_status("Vídeo generado")
+        finally:
+            self._set_busy(False)
+            try:
+                self._save_current_conversation()
+                self._save_conversation_state(include_current=True)
+            except Exception:
+                pass
         if messagebox.askyesno("Vídeo listo", "¿Quieres abrir el vídeo ahora?", parent=self):
             local.open_path(path)
 
