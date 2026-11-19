@@ -161,14 +161,11 @@ label > input, label > select { margin-top: 4px; }
 
 .provider-list {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 6px;
   padding-bottom: 2px;
-  max-height: 80px;
+  max-height: 160px;
   overflow-y: auto;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 6px;
 }
 .provider-pill {
   flex: 0 0 auto;
