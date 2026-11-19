@@ -19,6 +19,5 @@ Thumbs.db
 # Estado interno de HyperFrames (generado)
 .hyperframes/
 
-# Configuración local (las claves viven en %APPDATA%, no aquí)
-config.json
-cache.json
+# Copias anidadas / backups accidentales
+AI_HUB_v*/
