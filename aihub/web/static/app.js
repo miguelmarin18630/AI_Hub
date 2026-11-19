@@ -224,11 +224,8 @@ function bindEvents() {
     });
   });
 
-  $("provider-list").addEventListener("click", (event) => {
-    const pill = event.target.closest(".provider-pill");
-    if (!pill) return;
-    const id = pill.dataset.id;
-    state.providerFilter = state.providerFilter === id ? null : id;
+  $("provider-select").addEventListener("change", (event) => {
+    state.providerFilter = event.target.value || null;
     savePrefs();
     renderProviders();
     renderModels();
@@ -350,8 +347,8 @@ function categoryMatches(model) {
 }
 
 function renderProviders() {
-  const root = $("provider-list");
-  root.innerHTML = "";
+  const select = $("provider-select");
+  select.innerHTML = "";
   const counts = {};
   for (const model of state.models) {
     if (!categoryMatches(model)) continue;
@@ -359,16 +356,19 @@ function renderProviders() {
     counts[model.provider].total += 1;
     if (model.free) counts[model.provider].free += 1;
   }
+  const optionAll = document.createElement("option");
+  optionAll.value = "";
+  optionAll.textContent = "Todos los proveedores";
+  select.appendChild(optionAll);
   for (const provider of state.providers) {
     const count = counts[provider.id];
     if (!count) continue;
-    const pill = document.createElement("button");
-    pill.className = "provider-pill" + (state.providerFilter === provider.id ? " active" : "");
-    pill.dataset.id = provider.id;
-    pill.innerHTML = `<span style="color:${esc(provider.color)}">${esc(provider.glyph)}</span>
-      <span>${esc(provider.name)}</span> <small>${count.free}/${count.total}</small>`;
-    root.appendChild(pill);
+    const option = document.createElement("option");
+    option.value = provider.id;
+    option.textContent = `${provider.name} (${count.free}/${count.total})`;
+    select.appendChild(option);
   }
+  select.value = state.providerFilter || "";
 }
 
 function renderModels() {

@@ -137,6 +137,7 @@ label > input, label > select { margin-top: 4px; }
   padding: 12px;
   background: var(--bg);
   border-right: 1px solid var(--border);
+  overflow: hidden;
 }
 .layout.collapsed #sidebar { display: none; }
 .side-rail {
