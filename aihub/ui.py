@@ -17,6 +17,10 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from . import __version__, agent, api, catalog, config, custom, local, projects, usage
 
+# Login de escritorio (compartir datos con la versión web) — desactivado hasta
+# tener la versión definitiva. Para reactivarlo, pon True.
+DESKTOP_LOGIN_ENABLED = False
+
 # ---------------------------------------------------------------------------
 # Paleta y tipografía
 # ---------------------------------------------------------------------------
@@ -256,7 +260,7 @@ class MainWindow(tk.Tk):
         self.logged_user = None
         try:
             from aihub.web import users as web_users
-            if web_users.has_users() and "--smoke" not in sys.argv:
+            if web_users.has_users() and "--smoke" not in sys.argv and DESKTOP_LOGIN_ENABLED:
                 legacy_cfg = config.load_config()
                 user = self._prompt_login()
                 if user is None:

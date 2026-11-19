@@ -39,6 +39,9 @@ terminal con el modelo cargado.
   La primera vez que una cuenta vacía inicia sesión en el escritorio, hereda la
   configuración local (claves, proveedores propios, proyectos y favoritos).
 
+  > **Nota:** el login de escritorio está **desactivado por ahora** (versión
+  > provisional). La app usa la configuración local hasta reactivarlo.
+
 ## 3. Estructura de archivos
 
 | Archivo | Responsabilidad |

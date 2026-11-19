@@ -1,3 +1,3 @@
 """AI Hub: centro de modelos de IA para Windows."""
 
-__version__ = "1.3.5"
+__version__ = "1.3.6"

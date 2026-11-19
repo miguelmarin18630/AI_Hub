@@ -23,6 +23,11 @@ ventana de **inicio de sesión**: entra con la misma cuenta y compartirás clave
 proyectos, favoritos e historial con la web. La primera vez, una cuenta vacía
 hereda la configuración que ya tenías en el equipo.
 
+> **Nota:** el login de escritorio está **desactivado por ahora** (versión
+> provisional). La app de escritorio usa directamente tu configuración local
+> (`%APPDATA%\AIHub\config.json`) hasta que la versión definitiva reactive la
+> sincronización con la web.
+
 Requisitos: **Windows 10/11 o macOS** y **Python 3.10 o superior** con Tk (viene por defecto).
 Para macOS hay instrucciones específicas en `LEEME-MAC.md` y el lanzador `Iniciar_AI_Hub.command`.
 
@@ -215,8 +220,9 @@ que pulses «ver».
   ocurre al arrancar sin consola, el detalle queda en `%APPDATA%\AIHub\error.log`.
   Si se queda una ventana colgada, cierra `pythonw.exe` desde el Administrador de
   tareas y vuelve a abrir.
-- **Pide iniciar sesión**: hay cuentas web creadas. Usa la misma cuenta que en la
-  web (la contraseña se creó allí). Cerrar el diálogo cierra la app.
+- **Pide iniciar sesión**: (actualmente desactivado). Si se reactiva, usa la misma
+  cuenta que en la web (la contraseña se creó allí); cerrar el diálogo cierra
+  la app.
 - **Falta un proveedor**: pulsa el chip «N/4 proveedores» de la cabecera (o el aviso que aparece al
   arrancar) para ver qué falta y resolverlo con un clic: descargar el CLI, arrancar Ollama o añadir la
   clave de OpenRouter.
