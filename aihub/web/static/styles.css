@@ -387,8 +387,10 @@ label > input, label > select { margin-top: 4px; }
   .topbar { padding: 0 10px; }
   .brand-text small { display: none; }
   .layout, .layout.collapsed { grid-template-columns: 1fr; }
-  #sidebar { position: fixed; inset: 62px auto 0 0; width: 82vw; z-index: 40; border-right: 1px solid var(--border); }
+  #sidebar { position: fixed; inset: 62px auto 0 0; width: 86vw; max-width: 360px; z-index: 40; border-right: 1px solid var(--border); }
   .layout.collapsed #sidebar { display: none; }
   .layout.collapsed .side-rail { display: flex; }
   #detail { display: none; }
+  input, textarea, select { font-size: 16px; }
+  .composer textarea { min-height: 44px; }
 }
