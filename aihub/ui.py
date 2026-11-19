@@ -2708,6 +2708,11 @@ class MainWindow(tk.Tk):
     def _set_busy(self, busy: bool) -> None:
         self.busy = busy
         _set_enabled(self.btn_send, not busy and self.selected is not None)
+        if not busy:
+            try:
+                self.prompt.focus_set()
+            except tk.TclError:
+                pass
         _set_enabled(self.btn_primary, not busy and self.selected is not None)
         _set_enabled(self.btn_stop, busy)
         self.btn_send.configure(text="Trabajando…" if busy else self._send_label())
