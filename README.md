@@ -18,6 +18,11 @@ Hecho con Python y Tkinter (solo biblioteca estándar): no hay que instalar depe
 | Doble clic en **`run.bat`** | Abre la app mostrando la consola, útil si algo falla. |
 | **`Crear acceso directo.bat`** | Crea el acceso directo «AI Hub» en el escritorio, con su icono. |
 
+Si has creado cuentas en la versión web, al abrir el escritorio aparece una
+ventana de **inicio de sesión**: entra con la misma cuenta y compartirás claves,
+proyectos, favoritos e historial con la web. La primera vez, una cuenta vacía
+hereda la configuración que ya tenías en el equipo.
+
 Requisitos: **Windows 10/11 o macOS** y **Python 3.10 o superior** con Tk (viene por defecto).
 Para macOS hay instrucciones específicas en `LEEME-MAC.md` y el lanzador `Iniciar_AI_Hub.command`.
 
@@ -198,11 +203,20 @@ que pulses «ver».
 
 - Configuración: `%APPDATA%\AIHub\config.json`
 - Catálogos en caché: `%APPDATA%\AIHub\cache.json` (se regeneran con el botón **Actualizar** o `F5`)
+- Con cuentas web, cada persona usa `%APPDATA%\AIHub\web\users\<usuario>\` (configuración,
+  caché, proyectos y salida propios). El historial del escritorio se guarda en
+  `conversations.json` dentro de esa carpeta.
 - La app abre al instante con la caché y actualiza en segundo plano si «Actualizar el catálogo al
   abrir la app» está marcado.
 
 ## Si algo no aparece
 
+- **La app no abre**: ejecuta `run.bat` para ver el error en consola. Si el fallo
+  ocurre al arrancar sin consola, el detalle queda en `%APPDATA%\AIHub\error.log`.
+  Si se queda una ventana colgada, cierra `pythonw.exe` desde el Administrador de
+  tareas y vuelve a abrir.
+- **Pide iniciar sesión**: hay cuentas web creadas. Usa la misma cuenta que en la
+  web (la contraseña se creó allí). Cerrar el diálogo cierra la app.
 - **Falta un proveedor**: pulsa el chip «N/4 proveedores» de la cabecera (o el aviso que aparece al
   arrancar) para ver qué falta y resolverlo con un clic: descargar el CLI, arrancar Ollama o añadir la
   clave de OpenRouter.

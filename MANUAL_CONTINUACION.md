@@ -17,6 +17,7 @@ permite chatear, editar archivos del proyecto, generar imágenes/vídeo y abrir 
 terminal con el modelo cargado.
 
 - **Entrada:** `AIHub.pyw` + paquete `aihub/`
+- **Versión web:** `python -m aihub.web run` (multiusuario, sin dependencias)
 - **Proveedores:** OpenCode, Claude Code, Ollama, OpenRouter (+ proveedores
   personalizados compatibles con OpenAI: OpenAI, Gemini, Groq, DeepSeek, Mistral,
   Together AI, LM Studio…).
@@ -31,6 +32,12 @@ terminal con el modelo cargado.
   por la cola (`self.q`).
 - La configuración del usuario vive en `%APPDATA%\AIHub\` (`config.json`,
   `cache.json`), **fuera** del repositorio. Nunca commitear claves.
+- Si existen cuentas web (`%APPDATA%\AIHub\web\users.json`), el escritorio pide
+  login y trabaja en la carpeta de esa cuenta
+  (`%APPDATA%\AIHub\web\users\<id>\`). Así comparte claves, proyectos e historial
+  con la web. Si no hay cuentas, funciona en modo local con `%APPDATA%\AIHub\`.
+  La primera vez que una cuenta vacía inicia sesión en el escritorio, hereda la
+  configuración local (claves, proveedores propios, proyectos y favoritos).
 
 ## 3. Estructura de archivos
 
@@ -43,10 +50,15 @@ terminal con el modelo cargado.
 | `aihub/custom.py` | Proveedores personalizados compatibles con OpenAI |
 | `aihub/api.py` | Llamadas HTTP y traducción de errores |
 | `aihub/agent.py` | Bucle de agente con herramientas (leer/escribir archivos) |
-| `aihub/config.py` | Lectura/escritura de `config.json` |
+| `aihub/config.py` | Lectura/escritura de `config.json`; carpeta activa por usuario |
 | `aihub/local.py` | Detección de CLIs, Ollama, procesos |
 | `aihub/projects.py` | Proyectos y archivos |
+| `aihub/usage.py` | Consumo diario y total por modelo |
+| `aihub/web/server.py` | Servidor HTTP/SSE de la versión web |
+| `aihub/web/users.py` | Cuentas, login, sesiones y carpetas por usuario |
+| `aihub/web/static/` | HTML, CSS y JavaScript de la web |
 | `README.md` | Documentación para el usuario final |
+| `WEB.md` | Publicación de la web (Cloudflare Tunnel) |
 | `LEEME-MAC.md` | Instrucciones específicas de macOS |
 
 ---
@@ -82,6 +94,15 @@ C:\Python314\python.exe "C:\Proyectos\AI_HUB\AIHub.pyw" --selftest
 > **Importante:** los cambios de código **no** se aplican pulsando «Actualizar».
 > Python no recarga módulos: hay que **cerrar y reabrir la app** para probar con
 > el código nuevo. «Actualizar» solo vuelve a descargar catálogos.
+
+**Si la app «no abre»:**
+1. Ejecuta `run.bat` (abre consola y deja ver el error).
+2. Al arrancar, el escritorio pide login si hay cuentas web; el diálogo se centra
+   en pantalla y se trae al frente. Cerrar ese diálogo cierra la app.
+3. Cualquier fallo de arranque se guarda en `%APPDATA%\AIHub\error.log` y se
+   muestra en un cuadro de diálogo. Adjunta ese archivo al diagnosticar.
+4. No hay bloqueo de instancia única: si una ventana no responde, ciérrala desde
+   el Administrador de tareas (`pythonw.exe`) y vuelve a abrir.
 
 ### 4.4 Cambiar la versión
 La versión está **solo** en `aihub/__init__.py`:

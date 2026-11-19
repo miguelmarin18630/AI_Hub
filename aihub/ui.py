@@ -7,6 +7,7 @@ import json
 import os
 import queue
 import re
+import sys
 import threading
 import time
 import tkinter as tk
@@ -256,12 +257,14 @@ class MainWindow(tk.Tk):
         try:
             from aihub.web import users as web_users
             if web_users.has_users() and "--smoke" not in sys.argv:
+                legacy_cfg = config.load_config()
                 user = self._prompt_login()
                 if user is None:
                     self.destroy()
                     return
                 self.logged_user = user
                 web_users.activate(user["id"])
+                self._seed_account_config(legacy_cfg)
         except Exception:
             pass
         self.cfg = config.load_config()
@@ -323,6 +326,7 @@ class MainWindow(tk.Tk):
         self.after(120, self._dark_titlebar)
         self.after(200, self._startup)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.report_callback_exception = self._report_callback_error
         self.bind("<Control-f>", lambda _e: self._focus_search())
         self.bind("<Control-p>", lambda _e: self._open_project_picker())
         self.bind("<F5>", lambda _e: self._refresh_clicked())
@@ -1141,11 +1145,14 @@ class MainWindow(tk.Tk):
     def _maximize(self) -> None:
         try:
             self.state("zoomed")
-            return
         except tk.TclError:
-            pass
+            try:
+                self.attributes("-zoomed", True)
+            except tk.TclError:
+                pass
         try:
-            self.attributes("-zoomed", True)
+            self.lift()
+            self.focus_force()
         except tk.TclError:
             pass
 
@@ -4341,6 +4348,35 @@ class MainWindow(tk.Tk):
 
     # -- cierre -------------------------------------------------------------
 
+    def _seed_account_config(self, legacy: dict) -> None:
+        """Si la cuenta recién activada está vacía, hereda la configuración local.
+
+        Así al iniciar sesión por primera vez no desaparecen las claves, los
+        proveedores propios ni los proyectos que ya se usaban en este equipo.
+        """
+        try:
+            cfg = config.load_config()
+            if cfg.get("openrouter_api_key") or cfg.get("custom_providers") or cfg.get("last_models"):
+                return
+            for key in (
+                "openrouter_api_key",
+                "custom_providers",
+                "workdir",
+                "projects_root",
+                "output_root",
+                "last_provider",
+                "last_category",
+                "last_models",
+                "favorite_models",
+                "auto_refresh",
+                "usage",
+            ):
+                if key in legacy:
+                    cfg[key] = legacy[key]
+            config.save_config(cfg)
+        except Exception:
+            pass
+
     def _prompt_login(self):
         from aihub.web import users as web_users
 
@@ -4348,11 +4384,19 @@ class MainWindow(tk.Tk):
 
         win = tk.Toplevel(self)
         win.title("Iniciar sesión · AI Hub")
-        win.geometry("360x260")
-        win.resizable(False, False)
-        win.transient(self)
-        win.grab_set()
         win.configure(bg=BG)
+        win.resizable(False, False)
+
+        width, height = 390, 310
+        x = max(0, (win.winfo_screenwidth() - width) // 2)
+        y = max(0, (win.winfo_screenheight() - height) // 3)
+        win.geometry(f"{width}x{height}+{x}+{y}")
+
+        def cancel() -> None:
+            result["user"] = None
+            win.destroy()
+
+        win.protocol("WM_DELETE_WINDOW", cancel)
 
         tk.Label(win, text="AI HUB", bg=BG, fg=TEXT, font=(FONT, 14, "bold")).pack(pady=(18, 2))
         tk.Label(win, text="Inicia sesión para usar tu cuenta", bg=BG, fg=MUTED, font=(FONT, 9)).pack(pady=(0, 12))
@@ -4388,10 +4432,46 @@ class MainWindow(tk.Tk):
 
         name_entry.bind("<Return>", submit)
         pass_entry.bind("<Return>", submit)
+
+        # La ventana raíz aún no está visible: sin esto, el diálogo puede
+        # quedarse oculto y la aplicación parecer que no abre.
+        win.update_idletasks()
+        win.deiconify()
+        win.lift()
+        try:
+            win.attributes("-topmost", True)
+            win.after(800, lambda: win.attributes("-topmost", False))
+        except tk.TclError:
+            pass
+        try:
+            win.wait_visibility()
+            win.grab_set()
+        except tk.TclError:
+            pass
+        win.focus_force()
         name_entry.focus_set()
 
         self.wait_window(win)
         return result["user"]
+
+    def _report_callback_error(self, exc, value, tb) -> None:
+        """Registra errores de callbacks de Tk en un archivo en vez de perderlos."""
+        import traceback
+
+        text = "".join(traceback.format_exception(exc, value, tb))
+        try:
+            target = config.app_dir() / "error.log"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding="utf-8")
+        except Exception:
+            pass
+        if getattr(self, "_error_shown", False):
+            return
+        self._error_shown = True
+        try:
+            messagebox.showerror("AI Hub", "Se produjo un error:\n\n" + str(value)[:600])
+        except Exception:
+            pass
 
     def _on_close(self) -> None:
         try:
@@ -4424,4 +4504,9 @@ class MainWindow(tk.Tk):
 
 def run() -> None:
     app = MainWindow()
+    try:
+        if not app.winfo_exists():
+            return
+    except tk.TclError:
+        return
     app.mainloop()

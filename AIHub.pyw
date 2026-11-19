@@ -96,6 +96,33 @@ def commands() -> int:
     return 0
 
 
+def _report_crash() -> None:
+    """Muestra el error de arranque en vez de fallar en silencio con pythonw."""
+
+    import ctypes
+    import traceback
+
+    from aihub import config
+
+    text = traceback.format_exc()
+    where = ""
+    try:
+        target = config.APP_DIR / "error.log"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+        where = str(target)
+    except Exception:
+        pass
+    lines = [line for line in text.strip().splitlines() if line.strip()]
+    message = "AI Hub no pudo abrirse.\n\n" + (lines[-1][:400] if lines else "Error desconocido")
+    if where:
+        message += "\n\nDetalle guardado en:\n" + where
+    try:
+        ctypes.windll.user32.MessageBoxW(None, message, "AI Hub", 0x10)
+    except Exception:
+        print(message)
+
+
 def main() -> int:
     args = set(sys.argv[1:])
     if "--selftest" in args:
@@ -107,7 +134,11 @@ def main() -> int:
 
     from aihub.ui import run
 
-    run()
+    try:
+        run()
+    except Exception:
+        _report_crash()
+        return 1
     return 0
 
 
