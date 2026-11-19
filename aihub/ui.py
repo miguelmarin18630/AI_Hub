@@ -365,13 +365,15 @@ class MainWindow(tk.Tk):
                 pass
 
     def _build_header(self) -> None:
-        header = tk.Frame(self, bg=PANEL, height=62)
+        header = tk.Frame(self, bg=PANEL, height=68)
         header.grid(row=0, column=0, sticky="ew")
         header.grid_propagate(False)
         header.columnconfigure(1, weight=1)
+        # Franja de acento superior: identifica la app de un vistazo.
+        tk.Frame(header, bg=ACCENT, height=3).place(relx=0, rely=0, relwidth=1, height=3)
 
         brand = tk.Frame(header, bg=PANEL)
-        brand.grid(row=0, column=0, sticky="w", padx=(20, 8), pady=10)
+        brand.grid(row=0, column=0, sticky="w", padx=(22, 8), pady=(10, 8))
 
         logo = tk.Canvas(brand, width=40, height=40, bg=PANEL, highlightthickness=0)
         logo.pack(side="left", padx=(0, 12))
@@ -381,19 +383,21 @@ class MainWindow(tk.Tk):
 
         text = tk.Frame(brand, bg=PANEL)
         text.pack(side="left")
-        title = tk.Label(text, text=f"AI HUB  ·  v{__version__}", bg=PANEL, fg=TEXT, font=(FONT, 14, "bold"))
-        title.pack(anchor="w")
-        sub = tk.Label(
-            text,
-            text="Chat con modelos de IA",
-            bg=PANEL,
-            fg=MUTED,
-            font=(FONT, 9),
+        title_row = tk.Frame(text, bg=PANEL)
+        title_row.pack(anchor="w")
+        tk.Label(title_row, text="AI Hub", bg=PANEL, fg=TEXT, font=(FONT, 15, "bold")).pack(side="left")
+        # Versión visible y siempre presente: se ve en la cabecera y en la barra de estado.
+        self.version_badge = tk.Label(
+            title_row, text=f"v{__version__}", bg=ACCENT_SOFT, fg="#cdc2ff",
+            font=(FONT, 8, "bold"), padx=7, pady=1,
         )
-        sub.pack(anchor="w")
+        self.version_badge.pack(side="left", padx=(10, 0), pady=(4, 0))
+        tk.Label(
+            text, text="Chat y catálogo de modelos de IA", bg=PANEL, fg=MUTED, font=(FONT, 9), anchor="w",
+        ).pack(anchor="w")
 
         right = tk.Frame(header, bg=PANEL)
-        right.grid(row=0, column=2, sticky="e", padx=(0, 20))
+        right.grid(row=0, column=2, sticky="e", padx=(0, 22))
 
         self.header_chip = tk.Label(
             right,
@@ -405,7 +409,7 @@ class MainWindow(tk.Tk):
             pady=5,
             cursor="hand2",
         )
-        self.header_chip.pack(side="left", padx=(0, 10))
+        self.header_chip.pack(side="left", padx=(0, 12))
         self.header_chip.bind("<Button-1>", lambda _e: self._open_access_dialog())
         self.header_chip.bind(
             "<Enter>", lambda _e: self.header_chip.configure(fg=TEXT)
@@ -413,6 +417,8 @@ class MainWindow(tk.Tk):
         self.header_chip.bind(
             "<Leave>", lambda _e: self._paint_header_chip()
         )
+
+        tk.Frame(right, bg=BORDER, width=1, height=26).pack(side="left", padx=(0, 12))
 
         self.btn_refresh = _button(right, "⟳  Actualizar", self._refresh_clicked, kind="ghost", height=34)
         self.btn_refresh.pack(side="left", padx=(0, 8))
@@ -502,7 +508,7 @@ class MainWindow(tk.Tk):
         head = tk.Frame(side, bg=BG)
         head.grid(row=0, column=0, sticky="ew", pady=(0, 6))
         head.columnconfigure(0, weight=1)
-        tk.Label(head, text="PROVEEDOR", bg=BG, fg=DIM, font=(FONT, 8, "bold")).grid(
+        tk.Label(head, text="PROVEEDORES", bg=BG, fg=DIM, font=(FONT, 8, "bold")).grid(
             row=0, column=0, sticky="w"
         )
         collapse = tk.Label(
@@ -630,6 +636,14 @@ class MainWindow(tk.Tk):
         self.model_box.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(6, 0))
         self.model_box.bind("<<ComboboxSelected>>", self._on_model_box_select)
 
+        # Título de sección de la tabla, con el número de modelos a la derecha
+        models_head = tk.Frame(side, bg=BG)
+        models_head.grid(row=4, column=0, sticky="ew", pady=(0, 6))
+        models_head.columnconfigure(0, weight=1)
+        tk.Label(models_head, text="MODELOS", bg=BG, fg=DIM, font=(FONT, 8, "bold")).grid(row=0, column=0, sticky="w")
+        self.count_label = tk.Label(models_head, text="", bg=BG, fg=MUTED, font=(FONT, 8, "bold"), anchor="e")
+        self.count_label.grid(row=0, column=1, sticky="e")
+
         # Tabla de modelos
         table_frame = tk.Frame(side, bg=PANEL, highlightbackground=BORDER, highlightthickness=1)
         table_frame.grid(row=5, column=0, sticky="nsew")
@@ -694,8 +708,6 @@ class MainWindow(tk.Tk):
             anchor="w",
         )
         self.legend_label.grid(row=0, column=0, sticky="w")
-        self.count_label = tk.Label(legend, text="", bg=BG, fg=MUTED, font=(FONT, 8), anchor="w")
-        self.count_label.grid(row=1, column=0, sticky="w")
 
     def _render_provider_cards(self) -> None:
         grid = self.card_grid
@@ -744,7 +756,7 @@ class MainWindow(tk.Tk):
             grid, bg=BG, highlightbackground=BORDER, highlightthickness=1, cursor="hand2", padx=10, pady=5
         )
         add.grid(row=len(providers), column=0, sticky="ew", pady=(0, 4))
-        tk.Label(add, text="+  Anadir proveedor", bg=BG, fg=ACCENT, font=(FONT, 9, "bold")).pack(anchor="w")
+        tk.Label(add, text="+  Añadir proveedor", bg=BG, fg=ACCENT, font=(FONT, 9, "bold")).pack(anchor="w")
         _bind_recursive(add, self._open_add_provider)
         self._update_cards()
         self.after_idle(self._sync_cards_size)
@@ -793,9 +805,10 @@ class MainWindow(tk.Tk):
         center.columnconfigure(0, weight=1)
 
         # Cabecera de la conversación
-        head = tk.Frame(center, bg=PANEL, highlightbackground=BORDER, highlightthickness=1, padx=16, pady=10)
+        head = tk.Frame(center, bg=PANEL, highlightbackground=BORDER, highlightthickness=1, padx=18, pady=12)
         head.grid(row=0, column=0, sticky="ew")
         head.columnconfigure(0, weight=1)
+        tk.Frame(head, bg=ACCENT, width=3).place(x=0, y=0, relheight=1)
         titles = tk.Frame(head, bg=PANEL)
         titles.grid(row=0, column=0, sticky="ew")
         self.conv_title = tk.Label(
@@ -1093,7 +1106,7 @@ class MainWindow(tk.Tk):
         _set_enabled(self.btn_open_file, False)
 
     def _build_statusbar(self) -> None:
-        bar = tk.Frame(self, bg=PANEL, height=26)
+        bar = tk.Frame(self, bg=PANEL, height=30)
         bar.grid(row=2, column=0, sticky="ew")
         bar.grid_propagate(False)
         bar.columnconfigure(0, weight=1)
@@ -1101,11 +1114,17 @@ class MainWindow(tk.Tk):
         self.status_left = tk.Label(
             bar, text="Listo", bg=PANEL, fg=MUTED, font=(FONT, 8), anchor="w"
         )
-        self.status_left.grid(row=0, column=0, sticky="w", padx=14, pady=4)
-        self.status_right = tk.Label(
-            bar, text="", bg=PANEL, fg=DIM, font=(FONT, 8), anchor="e"
+        self.status_left.grid(row=0, column=0, sticky="w", padx=16, pady=4)
+
+        right = tk.Frame(bar, bg=PANEL)
+        right.grid(row=0, column=1, sticky="e", padx=16)
+        self.status_right = tk.Label(right, text="", bg=PANEL, fg=DIM, font=(FONT, 8), anchor="e")
+        self.status_right.pack(side="left", padx=(0, 10))
+        self.version_label = tk.Label(
+            right, text=f"AI Hub v{__version__}", bg=ACCENT_SOFT, fg="#cdc2ff",
+            font=(FONT, 8, "bold"), padx=7, pady=1,
         )
-        self.status_right.grid(row=0, column=1, sticky="e", padx=14, pady=4)
+        self.version_label.pack(side="left")
 
     # -- estado inicial -----------------------------------------------------
 
@@ -3178,9 +3197,7 @@ class MainWindow(tk.Tk):
         self.status_left.configure(text=text[:200])
     def _update_cache_label(self) -> None:
         _, ts = catalog.cached_models(self.provider)
-        self.status_right.configure(
-            text=f"Datos: {catalog.cache_age_text(ts)} · v{__version__}"
-        )
+        self.status_right.configure(text=f"Datos: {catalog.cache_age_text(ts)}")
 
     def _provider_ready(self, pid: str) -> bool:
         if catalog.PROVIDER_BY_ID.get(pid, {}).get("custom"):
