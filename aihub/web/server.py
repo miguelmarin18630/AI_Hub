@@ -344,6 +344,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("X-Frame-Options", "DENY")
+        self.send_header("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet")
         self.send_header(
             "Content-Security-Policy",
             "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; "
@@ -439,6 +440,13 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path == "/favicon.ico":
                 self._serve_file(STATIC_DIR / "favicon.svg", "image/svg+xml")
+                return
+            if path == "/robots.txt":
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self._security_headers()
+                self.end_headers()
+                self.wfile.write(b"User-agent: *\nDisallow: /\n")
                 return
             if path == "/api/state":
                 self._send_json(

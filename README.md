@@ -327,3 +327,11 @@ historial en bruto.
 
 Los precios son informativos y pueden cambiar: la app los lee de las APIs públicas cada vez que
 actualizas. El gasto real lo marca tu cuenta de OpenRouter.
+
+---
+
+## Licencia
+
+© 2026 Miguel Marín. Todos los derechos reservados. AI Hub es software propietario: no se permite
+su copia, distribución, modificación ni uso comercial sin autorización escrita. El código está
+publicado para consulta; no se concede licencia para reutilizarlo. Ver `LICENSE`.
