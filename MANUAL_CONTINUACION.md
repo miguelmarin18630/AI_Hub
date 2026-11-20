@@ -13,8 +13,8 @@ Ubicación fija: `C:\Proyectos\AI_HUB\MANUAL_CONTINUACION.md`
 
 **AI Hub** es una app de escritorio (Windows/macOS) en español para ver y usar
 modelos de IA: muestra qué modelos son gratis y cuáles son los más baratos, y
-permite chatear, editar archivos del proyecto, generar imágenes/vídeo y abrir el
-terminal con el modelo cargado.
+permite chatear con memoria de conversación, editar archivos de la carpeta de
+trabajo, generar imágenes/vídeo y abrir el terminal con el modelo cargado.
 
 - **Entrada:** `AIHub.pyw` + paquete `aihub/`
 - **Versión web:** `python -m aihub.web run` (multiusuario, sin dependencias)
@@ -30,6 +30,11 @@ terminal con el modelo cargado.
 - **Interfaz y mensajes en español.**
 - Nada de bloquear el hilo de la UI: el trabajo de red va en hilos y se comunica
   por la cola (`self.q`).
+- **Contexto de conversación:** los mensajes se construyen con `aihub/chat.py`
+  (`build_messages`, `build_cli_prompt`). No enviar `self.history` en bruto ni
+  duplicar el mensaje del usuario. El recorte se hace por turnos completos,
+  conserva las instrucciones del sistema y nunca parte una llamada a
+  herramientas. El límite se obtiene con `chat.context_limit_for(model)`.
 - La configuración del usuario vive en `%APPDATA%\AIHub\` (`config.json`,
   `cache.json`), **fuera** del repositorio. Nunca commitear claves.
 - Si existen cuentas web (`%APPDATA%\AIHub\web\users.json`), el escritorio pide
@@ -52,6 +57,7 @@ terminal con el modelo cargado.
 | `aihub/catalog.py` | Modelos, catálogos, precios, refresco, OpenCode/Claude/Ollama |
 | `aihub/custom.py` | Proveedores personalizados compatibles con OpenAI |
 | `aihub/api.py` | Llamadas HTTP y traducción de errores |
+| `aihub/chat.py` | Contexto de la conversación: sistema, historial, recorte y tokens |
 | `aihub/agent.py` | Bucle de agente con herramientas (leer/escribir archivos) |
 | `aihub/config.py` | Lectura/escritura de `config.json`; carpeta activa por usuario |
 | `aihub/local.py` | Detección de CLIs, Ollama, procesos |
@@ -85,6 +91,7 @@ terminal con el modelo cargado.
 ```powershell
 # 1) Compila los módulos tocados
 C:\Python314\python.exe -m py_compile C:\Proyectos\AI_HUB\aihub\ui.py
+C:\Python314\python.exe -m py_compile C:\Proyectos\AI_HUB\aihub\chat.py
 
 # 2) Test rápido de la UI
 C:\Python314\python.exe "C:\Proyectos\AI_HUB\AIHub.pyw" --smoke
@@ -93,6 +100,10 @@ C:\Python314\python.exe "C:\Proyectos\AI_HUB\AIHub.pyw" --smoke
 # 3) Autocomprobación (si tocas catálogos, proveedores o precios)
 C:\Python314\python.exe "C:\Proyectos\AI_HUB\AIHub.pyw" --selftest
 ```
+
+> Si tocas el contexto o el chat, prueba además **dos consultas seguidas** en la
+> app reiniciada: la segunda debe recordar la primera y el indicador «Contexto»
+> debe subir de turnos.
 
 > **Importante:** los cambios de código **no** se aplican pulsando «Actualizar».
 > Python no recarga módulos: hay que **cerrar y reabrir la app** para probar con
@@ -189,14 +200,16 @@ Reglas:
 
 - **UI:** Tkinter, tema oscuro; textos en español; el panel central de chat es el
   más grande; la columna izquierda es estrecha.
+- **Contexto visible:** la cabecera del chat muestra turnos y tokens aproximados
+  usados frente al límite del modelo; al recortar se avisa en la conversación.
 - **Orden de modelos:** primero los gratuitos (por relevancia), después los de
   pago de menor a mayor precio.
 - **Errores:** traducirlos a mensajes claros (ver `_error_message` en `api.py`);
   no mostrar trazas internas de los CLIs salvo como detalle.
 - **Clasificación gratis/pago:** `_is_free_model()` en `custom.py` decide por
   nombre de modelo. Si añades un proveedor, añade su regla ahí.
-- **Archivos del proyecto:** el agente solo lee/escribe dentro del proyecto
-  elegido.
+- **Archivos del proyecto:** el agente solo lee/escribe dentro de la carpeta de
+  trabajo abierta.
 
 ---
 
@@ -225,6 +238,7 @@ Antes de dar una tarea por acabada:
 - [ ] `py_compile` de los archivos tocados sin errores.
 - [ ] `--smoke` → `GUI smoke test OK`.
 - [ ] `--selftest` si afecta catálogos/proveedores/precios.
+- [ ] Dos consultas seguidas recuerdan la anterior si tocas `chat.py` o el envío.
 - [ ] Probado con la app **reiniciada** (no solo «Actualizar»).
 - [ ] Versión subida en `aihub/__init__.py` si cambia el comportamiento.
 - [ ] `README.md` actualizado si cambia lo que ve el usuario.
@@ -237,6 +251,10 @@ Antes de dar una tarea por acabada:
 
 - Los errores de un proveedor no deben ensuciar el panel del modelo en uso: se
   muestran en la tarjeta del proveedor.
+- Los tokens del indicador de contexto son una estimación (≈4 caracteres/token);
+  el gasto real lo marca la cuenta del proveedor.
+- Los modelos locales (Ollama) usan 8K de contexto por defecto si el catálogo no
+  informa de otra ventana.
 - Imágenes/vídeo en OpenRouter requieren saldo; el chat gratuito sigue.
 - Modelos locales sin soporte de herramientas caen a chat plano.
 - `--selftest` necesita conexión a internet.

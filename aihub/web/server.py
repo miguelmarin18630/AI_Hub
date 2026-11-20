@@ -19,7 +19,7 @@ from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from aihub import __version__, agent, api, catalog, config, custom, local, projects, usage
+from aihub import __version__, agent, api, catalog, chat, config, custom, local, projects, usage
 
 from . import users
 
@@ -658,8 +658,11 @@ class Handler(BaseHTTPRequestHandler):
             if not root.is_dir():
                 root = None
 
-        if root and use_tools:
-            messages = [{"role": "system", "content": agent.system_prompt(root)}] + messages
+        system_prompt = agent.system_prompt(root) if (root and use_tools) else chat.DEFAULT_SYSTEM_PROMPT
+        limit = chat.OLLAMA_CONTEXT if provider_id == "ollama" else chat.DEFAULT_CONTEXT
+        messages, _context = chat.build_messages(
+            messages, limit=limit, system_prompt=system_prompt
+        )
 
         started = time.time()
         self._sse_start()

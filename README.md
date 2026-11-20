@@ -2,10 +2,13 @@
 
 Una sola ventana de Windows para ver **qué modelos de IA puedes usar gratis y cuáles son los más
 baratos**, ordenados por precio, en cuatro proveedores: **OpenCode**, **Claude Code**, **Ollama** y
-**OpenRouter**. También sirve para usarlos: abrir el terminal con el modelo ya cargado, descargar
-modelos de Ollama, chatear y generar imágenes o vídeos.
+**OpenRouter** (más los proveedores compatibles con OpenAI que añadas tú). También sirve para usarlos:
+chatear con memoria de conversación, editar archivos, generar imágenes o vídeos y abrir el terminal
+con el modelo ya cargado.
 
 Hecho con Python y Tkinter (solo biblioteca estándar): no hay que instalar dependencias con `pip`.
+
+La **versión** se muestra siempre en la cabecera y en la barra de estado (por ejemplo, `v1.5.0`).
 
 ---
 
@@ -45,14 +48,16 @@ La app detecta sola cuáles están instalados y lo indica en cada tarjeta del pa
 
 La app funciona como un proveedor de IA, con este flujo:
 
-1. **Proyecto**: al abrir la app se elige la carpeta de trabajo (o `Ctrl+P`).
-2. **Proveedor**: OpenCode, Claude Code, Ollama u OpenRouter, en la columna izquierda.
-3. **Modelo**: en la lista. Para modificar archivos, el modelo debe admitir herramientas.
-4. **Descripción**: escribe lo que necesitas y pulsa Enter. El modelo lee y modifica los archivos del
-   proyecto y lo resume en la conversación.
+1. **Proveedor**: OpenCode, Claude Code, Ollama u OpenRouter, en la columna izquierda.
+2. **Modelo**: en la lista. Para modificar archivos, el modelo debe admitir herramientas.
+3. **Consulta**: escribe lo que necesitas y pulsa Enter. El modelo responde en el panel central y
+   la app **conserva el hilo**: la siguiente consulta se envía con las respuestas anteriores.
+4. **Contexto**: la cabecera de la conversación muestra cuántos turnos lleva y cuántos tokens
+   aproximados se están usando del límite del modelo. El botón **Cómo funciona** explica el proceso.
 
-La pantalla de inicio de cada chat muestra el estado de estos cuatro pasos. Sin proyecto o con un
-modelo sin herramientas, la app no envía la consulta y te indica qué falta.
+La pantalla de inicio de cada chat muestra el estado del proveedor, del modelo y de la conversación.
+No hace falta elegir un proyecto para conversar: la carpeta de trabajo es opcional y solo se usa
+cuando el modelo va a leer o escribir archivos.
 
 Al arrancar, la app **comprueba el acceso a los cuatro proveedores**: si OpenCode o Claude Code no
 están instalados, si Ollama no responde, o si falta la clave de OpenRouter, abre el diálogo
@@ -70,16 +75,40 @@ La pantalla funciona como el espacio de chat de un proveedor de IA. Tiene tres c
    invierte el orden. La columna tiene **ancho fijo** y las tarjetas de proveedor tienen **scroll**, así
    que añadir proveedores no reduce la conversación; el botón **◀** la pliega a una franja lateral y
    **▶** la vuelve a mostrar.
-2. **Conversación** (centro, la parte principal) → cabecera con el modelo activo y su acceso a
-   archivos, el hilo de mensajes y el **compositor**: escribe y pulsa **Enter** para enviar
-   (**Shift+Enter** para salto de línea). «Nuevo chat» empieza una conversación limpia.
-3. **Modelo y archivos** (derecha) → precio, descripción, acciones (terminal, copiar comando/ID) y la
-   lista de archivos del proyecto. Doble clic en un archivo lo abre; «Modificados en este chat» indica
-   lo que el modelo ha cambiado.
+2. **Conversación** (centro, la parte principal) → cabecera con el modelo activo, su acceso a
+   archivos y el **indicador de contexto** (turnos y tokens usados). Incluye **Historial**,
+   **Cómo funciona** y **Nuevo chat**. El hilo de mensajes se conserva entre consultas y al cambiar de
+   modelo; el **compositor** envía con **Enter** (**Shift+Enter** para salto de línea). «Nuevo chat»
+   empieza una conversación limpia.
+3. **Modelo y archivos** (derecha) → precio, descripción, acciones (terminal, copiar comando/ID), la
+   carpeta de trabajo y la lista de archivos. Doble clic en un archivo lo abre; «Modificados en este
+   chat» indica lo que el modelo ha cambiado.
 
 Filtros y orden: buscador, desplegable **Todos / Gratis / De pago** y orden **Precio ↑, Precio ↓,
 Nombre, Contexto ↓**. Los modelos **gratuitos van siempre primero** y, dentro de ellos, ordenados por
 **relevancia** (contexto, herramientas, visión, razonamiento, tamaño y familia), no alfabéticamente.
+
+---
+
+## Cómo funciona la conversación (contexto)
+
+Una IA no recuerda nada entre peticiones: la memoria se la da la app enviando el historial. AI Hub lo
+hace igual en todos los proveedores:
+
+1. **Tu consulta se guarda** en el historial como mensaje de usuario.
+2. **Se construye el contexto**: instrucciones del sistema (responder en español, no inventar, usar el
+   hilo) + turnos anteriores + tu mensaje nuevo.
+3. **Se respeta la ventana del modelo**. Si el hilo crece demasiado, se recortan los turnos más
+   antiguos completos; nunca se parte una llamada a herramientas por la mitad. El indicador
+   **Contexto** de la cabecera muestra los turnos y los tokens aproximados usados.
+4. **La respuesta se añade al historial** como mensaje del asistente. En los modelos con herramientas
+   también se guardan las lecturas/escrituras de archivos del turno.
+5. **El hilo se conserva** al cambiar de modelo o proveedor (el contexto se envía al modelo nuevo) y
+   al cerrar y reabrir la app. Solo **Nuevo chat** empieza de cero. El historial completo está en
+   **Historial**.
+
+Los tokens son una **estimación** (≈4 caracteres por token y ~800 por imagen); sirven para no
+desbordar el límite, no para facturar. El gasto real lo marca la cuenta del proveedor.
 
 ---
 
@@ -108,18 +137,18 @@ La versión web conserva las mismas funciones: catálogo de modelos, chat con
 herramientas sobre tus archivos, generación de imágenes y vídeos, consumo por
 modelo y ajustes. OpenCode y Claude Code usan los CLI instalados en el servidor.
 
-## Proyecto de trabajo
+## Carpeta de trabajo (opcional)
 
-Al abrir la app pregunta **en qué proyecto vas a trabajar**. Cada proyecto es una carpeta dentro de
-`C:\Proyectos`; ahí se ejecutan las consolas de OpenCode, Claude Code y Ollama y las consultas.
+La app **ya no pregunta por un proyecto al abrir**. Recuerda la última carpeta usada y la muestra en
+el panel derecho («ARCHIVOS DE LA CARPETA»).
 
-- Se elige con doble clic o con **Trabajar aquí**. La última elección queda marcada.
-- **Sin proyecto** → para **imágenes y fotos** (y chat o vídeo) sin atar nada a una carpeta. Las
-  imágenes siguen guardándose en `Imágenes\AI Hub`. Si en ese modo intentas usar OpenCode, Claude
-  Code o Ollama, la app te pedirá un proyecto.
-- **Nueva carpeta…** crea un proyecto nuevo dentro de `C:\Proyectos`.
-- **Otro…** permite elegir cualquier carpeta del equipo.
-- Para cambiarlo sin cerrar la app: botón **Proyecto · nombre** del encabezado o `Ctrl+P`.
+- **Conversar, generar imágenes o vídeos no necesita carpeta**. Puedes empezar directamente.
+- Para que un modelo **lea o escriba archivos**, abre una carpeta con **abrir carpeta** (panel derecho)
+  y deja activada la casilla «Leer y escribir archivos» del compositor.
+- La carpeta elegida se guarda en la configuración y se recupera al volver a abrir la app.
+- OpenCode y Claude Code necesitan una carpeta para trabajar: si no hay ninguna, la app la pide al
+  enviar la primera consulta.
+- Las imágenes y los vídeos se guardan en `Imágenes\AI Hub` (se puede cambiar en Ajustes).
 
 ### Cómo se calculan los precios
 
@@ -159,26 +188,26 @@ Al abrir la app pregunta **en qué proyecto vas a trabajar**. Cada proyecto es u
   - Solo un archivo a la vez; se quita con **quitar**. En Imagen/Vídeo el botón se oculta porque no
     se usa.
 - **OpenCode / Claude Code** → «Abrir terminal con este modelo» lanza una consola en la carpeta de
-  trabajo con el modelo ya seleccionado. Enviar un mensaje ejecuta el CLI en segundo plano, dentro del
-  proyecto, y va escribiendo la respuesta en la conversación. El CLI lee y escribe archivos por sí mismo
+  trabajo con el modelo ya seleccionado. Enviar un mensaje ejecuta el CLI en segundo plano, dentro de la
+  carpeta, y va escribiendo la respuesta en la conversación. El CLI lee y escribe archivos por sí mismo
   (Claude Code se ejecuta con `--permission-mode acceptEdits` para poder editar sin preguntar).
 - **Ollama** → chat en el panel; si el modelo aún no está descargado, el botón de la ficha lo
   descarga en una consola aparte. Si el modelo declara soporte de herramientas, también lee y escribe
-  archivos del proyecto; si no, responde en modo solo chat y lo indica.
+  archivos de la carpeta; si no, responde en modo solo chat y lo indica.
 - **OpenRouter** → chat con streaming dentro de la app (guarda el hilo de la conversación) y
   generación de **imágenes** y **vídeos**. Las imágenes se guardan en
   `Imágenes\AI Hub\imagenes` y los vídeos en `Imágenes\AI Hub\videos` (se puede cambiar en Ajustes).
   Antes de gastar en un vídeo, la app pide confirmación y muestra el coste estimado.
-  Para imágenes y fotos **no hace falta proyecto**: elige «Sin proyecto» al abrir.
-- **Leer y escribir archivos** → con un proyecto elegido, OpenRouter (modelos con herramientas) y
-  Ollama (modelos con soporte de herramientas) pueden **listar, leer, crear y editar archivos** del
-  proyecto. La casilla «Leer y escribir archivos», bajo el compositor, activa o desactiva este acceso.
+  Para imágenes y fotos **no hace falta carpeta**.
+- **Leer y escribir archivos** → con una carpeta abierta, OpenRouter (modelos con herramientas) y
+  Ollama (modelos con soporte de herramientas) pueden **listar, leer, crear y editar archivos** de esa
+  carpeta. La casilla «Leer y escribir archivos», bajo el compositor, activa o desactiva este acceso.
   Cada acción aparece en la conversación (`⚙ read_file …`, `⚙ write_file …`), el resumen final indica
-  los archivos modificados y el panel derecho los lista. Todo queda limitado a la carpeta del proyecto
+  los archivos modificados y el panel derecho los lista. Todo queda limitado a la carpeta elegida
   y nunca se escribe dentro de `.git`.
   - Si un modelo de Ollama no admite herramientas, la app responde en modo solo chat y lo indica.
   - Si un modelo de OpenRouter no admite herramientas, la casilla aparece desactivada.
-  - Sin proyecto no hay archivos que leer: elige uno con `Ctrl+P`.
+  - Sin carpeta abierta no hay archivos que leer: usa «abrir carpeta» en el panel derecho.
 
 ### Clave de OpenRouter
 
@@ -196,7 +225,6 @@ que pulses «ver».
 | Atajo | Acción |
 | --- | --- |
 | `Ctrl+F` | Ir al buscador |
-| `Ctrl+P` | Cambiar de proyecto |
 | `F5` | Actualizar catálogos |
 | `Enter` en el compositor | Enviar la consulta (`Shift+Enter` = nueva línea; `Ctrl+Enter` también envía) |
 | Doble clic / `Enter` en la lista | Usar el modelo (acción principal) |
@@ -208,9 +236,9 @@ que pulses «ver».
 
 - Configuración: `%APPDATA%\AIHub\config.json`
 - Catálogos en caché: `%APPDATA%\AIHub\cache.json` (se regeneran con el botón **Actualizar** o `F5`)
-- Con cuentas web, cada persona usa `%APPDATA%\AIHub\web\users\<usuario>\` (configuración,
-  caché, proyectos y salida propios). El historial del escritorio se guarda en
-  `conversations.json` dentro de esa carpeta.
+- Historial de conversaciones: `%APPDATA%\AIHub\conversations.json` (hasta 30 conversaciones; la
+  conversación actual se recupera al abrir la app). Con el login reactivado, cada persona usa
+  `%APPDATA%\AIHub\web\users\<usuario>\` y su propio `conversations.json`.
 - La app abre al instante con la caché y actualiza en segundo plano si «Actualizar el catálogo al
   abrir la app» está marcado.
 
@@ -226,6 +254,9 @@ que pulses «ver».
 - **Falta un proveedor**: pulsa el chip «N/4 proveedores» de la cabecera (o el aviso que aparece al
   arrancar) para ver qué falta y resolverlo con un clic: descargar el CLI, arrancar Ollama o añadir la
   clave de OpenRouter.
+- **No sigue el hilo de la conversación**: comprueba que no has pulsado «Nuevo chat»; el indicador
+  **Contexto** de la cabecera debe mostrar más de 0 turnos. Si el modelo es local con una ventana
+  pequeña, la app recorta los turnos más antiguos para no desbordarla (lo indica en la conversación).
 - **No hay modelos**: pulsa **Actualizar** (hace falta conexión). Si falla, revisa la barra de estado.
 - **Ollama sin modelos**: abre Ollama o ejecuta `ollama serve`; luego **Actualizar**.
 - **OpenRouter no responde**: comprueba la clave en Ajustes o la variable `OPENROUTER_API_KEY`.
@@ -258,6 +289,7 @@ C:\Proyectos\AI_HUB\
 ├─ aihub/
 │  ├─ config.py               rutas y configuración (%APPDATA%\AIHub)
 │  ├─ api.py                  OpenRouter, Ollama y precios de OpenCode Zen
+│  ├─ chat.py                 contexto de la conversación (memoria, turnos y tokens)
 │  ├─ local.py                detección y ejecución de opencode / claude / ollama
 │  ├─ catalog.py              modelos, precios, orden y caché
 │  ├─ projects.py             lista y creación de proyectos (C:\Proyectos)
@@ -273,7 +305,10 @@ C:\Proyectos\AI_HUB\
    WEB.md                      publicar la versión web en marinweb.org
 ```
 
-El agente usa `aihub/agent.py` (listar, leer, escribir y reemplazar dentro del proyecto).
+El agente usa `aihub/agent.py` (listar, leer, escribir y reemplazar dentro de la carpeta de trabajo).
+El contexto de la conversación se centraliza en `aihub/chat.py`: instrucciones del sistema, historial,
+recorte por ventana y estimación de tokens. Cualquier proveedor nuevo debe usarlo en vez de enviar el
+historial en bruto.
 
 Los precios son informativos y pueden cambiar: la app los lee de las APIs públicas cada vez que
 actualizas. El gasto real lo marca tu cuenta de OpenRouter.

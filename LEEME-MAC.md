@@ -39,10 +39,13 @@ python  AIHub.pyw --selftest     # Windows
 
 ## Uso rápido
 
-1. Elige **proyecto** (o «Sin proyecto» si solo vas a generar imágenes/vídeos).
-2. Elige proveedor y categoría; los modelos **gratis** salen primero.
+1. Elige proveedor y categoría; los modelos **gratis** salen primero.
+2. Elige el modelo en la lista.
 3. Escribe la consulta en el compositor y pulsa **Enter** (o `Ctrl+Enter`). `Shift+Enter` añade una línea.
-4. Con OpenRouter o Ollama (modelos con herramientas), la app puede **leer y escribir archivos** del
-   proyecto: se activa con la casilla «Leer y escribir archivos», bajo el compositor.
+   La conversación **recuerda los turnos anteriores**; el indicador «Contexto» de la cabecera muestra
+   cuántos turnos y tokens aproximados se usan. «Nuevo chat» empieza de cero.
+4. Para **leer y escribir archivos**, abre una carpeta con «abrir carpeta» (panel derecho) y activa
+   «Leer y escribir archivos» bajo el compositor. Conversar, generar imágenes o vídeos no necesita
+   carpeta.
 
 La clave de OpenRouter se guarda en la app o en la variable `OPENROUTER_API_KEY`.

@@ -16,7 +16,7 @@ import tkinter.font as tkfont
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
-from . import __version__, agent, api, catalog, config, custom, local, projects, usage
+from . import __version__, agent, api, catalog, chat, config, custom, local, usage
 
 # Login de escritorio (compartir datos con la versión web) — desactivado hasta
 # tener la versión definitiva. Para reactivarlo, pon True.
@@ -828,6 +828,14 @@ class MainWindow(tk.Tk):
         self.conv_title.pack(anchor="w")
         self.conv_sub = tk.Label(titles, text="", bg=PANEL, fg=MUTED, font=(FONT, 9), anchor="w")
         self.conv_sub.pack(anchor="w")
+        # Indicador de contexto: cuánta "memoria" de la conversación se está usando.
+        self.conv_context = tk.Label(
+            titles, text="", bg=PANEL, fg=MUTED, font=(FONT, 8), anchor="w"
+        )
+        self.conv_context.pack(anchor="w", pady=(4, 0))
+        self.context_bar = tk.Frame(titles, bg=PANEL_3, height=3)
+        self.context_bar.pack(fill="x", pady=(5, 0))
+        self.context_fill = tk.Frame(self.context_bar, bg=GREEN)
         btns = tk.Frame(head, bg=PANEL)
         btns.grid(row=0, column=1, sticky="e", padx=(10, 0))
         self.btn_clear = _button(
@@ -838,6 +846,10 @@ class MainWindow(tk.Tk):
             btns, "Historial", self._open_history, kind="ghost", height=32, font_size=9
         )
         self.btn_history.pack(side="right", padx=(0, 6))
+        self.btn_howto = _button(
+            btns, "Cómo funciona", self._open_how_it_works, kind="ghost", height=32, font_size=9
+        )
+        self.btn_howto.pack(side="right", padx=(0, 6))
 
         # Conversación (la salida)
         conv = tk.Frame(center, bg=INPUT, highlightbackground=BORDER, highlightthickness=1)
@@ -1049,7 +1061,7 @@ class MainWindow(tk.Tk):
         self.btn_third = _button(actions, "Copiar ID", self._third_action, kind="ghost", height=28, font_size=9)
         self.btn_third.grid(row=1, column=1, sticky="ew", padx=(3, 0))
 
-        # Archivos del proyecto
+        # Archivos de la carpeta de trabajo
         files = tk.Frame(wrap, bg=PANEL, highlightbackground=BORDER, highlightthickness=1, padx=14, pady=12)
         files.grid(row=1, column=0, sticky="nsew", pady=(10, 0))
         files.columnconfigure(0, weight=1)
@@ -1058,7 +1070,7 @@ class MainWindow(tk.Tk):
         head = tk.Frame(files, bg=PANEL)
         head.grid(row=0, column=0, sticky="ew")
         head.columnconfigure(0, weight=1)
-        tk.Label(head, text="ARCHIVOS DEL PROYECTO", bg=PANEL, fg=DIM, font=(FONT, 8, "bold")).grid(
+        tk.Label(head, text="ARCHIVOS DE LA CARPETA", bg=PANEL, fg=DIM, font=(FONT, 8, "bold")).grid(
             row=0, column=0, sticky="w"
         )
         self.btn_open_folder = _button(head, "abrir carpeta", self._open_project_folder, kind="link", height=0, font_size=8)
@@ -1597,10 +1609,10 @@ class MainWindow(tk.Tk):
     # -- detalle ------------------------------------------------------------
 
     def _file_access(self, model) -> tuple[str, str]:
-        """Cómo accede el modelo a los archivos del proyecto.
+        """Cómo accede el modelo a los archivos de la carpeta de trabajo.
 
         Devuelve (modo, texto): modo "agent" (herramientas de AI Hub), "cli"
-        (el propio CLI de OpenCode/Claude Code opera en el proyecto) u "off".
+        (el propio CLI de OpenCode/Claude Code opera en la carpeta) u "off".
         """
         if model is None or model.category != "code":
             return "off", ""
@@ -1608,17 +1620,17 @@ class MainWindow(tk.Tk):
             return "cli", "archivos vía " + ("OpenCode" if model.provider == "opencode" else "Claude Code")
         if model.provider == "ollama":
             if self._current_project() is None:
-                return "off", "sin proyecto: elige uno (Ctrl+P) para leer y escribir archivos"
+                return "off", "sin carpeta: abre una carpeta en el panel derecho"
             if not self.tools_var.get():
                 return "off", "acceso a archivos desactivado"
-            return "agent", "archivos del proyecto (modelo local)"
+            return "agent", "archivos de la carpeta (modelo local)"
         if self._current_project() is None:
-            return "off", "sin proyecto: elige uno (Ctrl+P) para leer y escribir archivos"
+            return "off", "sin carpeta: abre una carpeta en el panel derecho"
         if not _supports_tools(model):
             return "off", "este modelo no admite herramientas de archivos"
         if not self.tools_var.get():
             return "off", "acceso a archivos desactivado"
-        return "agent", "lee y escribe archivos del proyecto"
+        return "agent", "lee y escribe archivos de la carpeta"
 
     def _tools_active(self, model: catalog.Model | None) -> bool:
         return self._file_access(model)[0] == "agent"
@@ -1653,6 +1665,7 @@ class MainWindow(tk.Tk):
         if model is None:
             self.conv_title.configure(text="Elige un modelo")
             self.conv_sub.configure(text="Proveedor y modelo en la columna izquierda")
+            self._paint_context(None)
             return
         provider = catalog.PROVIDER_BY_ID[model.provider]["name"]
         category = catalog.CATEGORY_LABELS.get(model.category, model.category)
@@ -1663,6 +1676,48 @@ class MainWindow(tk.Tk):
                 bits.append(reason)
         self.conv_title.configure(text=model.name)
         self.conv_sub.configure(text=" · ".join(bits))
+        self._paint_context(model)
+
+    def _paint_context(self, model) -> None:
+        """Muestra cuánto contexto lleva la conversación y cuánto cabe en el modelo."""
+        label = getattr(self, "conv_context", None)
+        if label is None:
+            return
+        if model is None:
+            label.configure(text="Contexto: elige un modelo para empezar", fg=DIM)
+            self._paint_context_bar(0.0, GREEN)
+            return
+        limit = chat.context_limit_for(model)
+        info = chat.conversation_info(self.history, limit)
+        if not self.history:
+            label.configure(
+                text=f"Contexto vacío · {chat.fmt_tokens(limit)} tokens disponibles", fg=DIM
+            )
+            self._paint_context_bar(0.0, GREEN)
+            return
+        color = {"ok": GREEN, "medium": AMBER, "high": RED}[info.level]
+        turns = info.turns
+        plural = "s" if turns != 1 else ""
+        label.configure(
+            text=(
+                f"Contexto: {turns} turno{plural} · "
+                f"~{chat.fmt_tokens(info.tokens)} de {chat.fmt_tokens(limit)} tokens"
+            ),
+            fg=color,
+        )
+        self._paint_context_bar(info.percent, color)
+
+    def _paint_context_bar(self, fraction: float, color: str) -> None:
+        bar = getattr(self, "context_bar", None)
+        fill = getattr(self, "context_fill", None)
+        if bar is None or fill is None:
+            return
+        fraction = max(0.0, min(1.0, fraction))
+        fill.configure(bg=color)
+        if fraction <= 0:
+            fill.place_forget()
+        else:
+            fill.place(x=0, y=0, relwidth=fraction, relheight=1)
 
     def _update_detail(self) -> None:
         model = self.selected
@@ -1755,7 +1810,7 @@ class MainWindow(tk.Tk):
 
         if model.category == "image":
             self.btn_send.configure(text="Generar imagen  ▸")
-            hint = "Describe la imagen. Ctrl+Enter genera. No hace falta proyecto."
+            hint = "Describe la imagen. Ctrl+Enter genera. No hace falta carpeta."
         elif model.category == "video":
             self.btn_send.configure(text="Generar vídeo  ▸")
             hint = "Describe el vídeo. Se cobra por segundo y se avisa antes."
@@ -1764,10 +1819,10 @@ class MainWindow(tk.Tk):
             hint = "Primero descarga el modelo (botón de la ficha)."
         else:
             self.btn_send.configure(text="Enviar  ▸")
-            if self._current_project() is None:
-                hint = "Paso 1: elige el proyecto (Ctrl+P) antes de describir la tarea"
+            if self._current_project() is None and model.provider in ("opencode", "claude"):
+                hint = "Abre una carpeta con «abrir carpeta» antes de enviar (estos CLI la necesitan)"
             else:
-                hint = "Paso 4: describe lo que necesitas · Enter envía · Shift+Enter nueva línea"
+                hint = "Describe lo que necesitas · Enter envía · Shift+Enter nueva línea"
         self.send_hint.configure(text=hint)
 
         if model.category == "code":
@@ -1829,7 +1884,7 @@ class MainWindow(tk.Tk):
         self.usage_quota.configure(text="\n".join(self._provider_quota_lines(model.provider)))
 
     def _refresh_files(self) -> None:
-        """Lista el primer nivel del proyecto en el panel derecho."""
+        """Lista el primer nivel de la carpeta de trabajo en el panel derecho."""
         listing = getattr(self, "files_list", None)
         if listing is None:
             return
@@ -1837,8 +1892,8 @@ class MainWindow(tk.Tk):
         self._files_paths = []
         root = self._current_project()
         if root is None or not root.is_dir():
-            self.files_title.configure(text="Sin proyecto")
-            listing.insert("end", "  Elige un proyecto (Ctrl+P)")
+            self.files_title.configure(text="Sin carpeta")
+            listing.insert("end", "  Abre una carpeta con «abrir carpeta»")
             listing.configure(fg=DIM)
             self._refresh_touched()
             return
@@ -1876,6 +1931,9 @@ class MainWindow(tk.Tk):
         except Exception:
             pass
         self._refresh_files()
+        self._update_detail()
+        if not self.busy and not self.history:
+            self._clear_output()
         self._set_status(f"Carpeta: {Path(chosen).name}")
 
     def _on_prompt_enter(self, event):
@@ -2033,7 +2091,7 @@ class MainWindow(tk.Tk):
                 env = dict(os.environ)
                 env.setdefault("NO_COLOR", "1")
                 env.setdefault("CLICOLOR", "0")
-                # Sin proyecto el workdir está vacío: usa la carpeta personal.
+                # Sin carpeta el workdir está vacío: usa la carpeta personal.
                 workdir = str(self.cfg.get("workdir") or "")
                 if not Path(workdir).is_dir():
                     workdir = str(Path.home())
@@ -2315,17 +2373,9 @@ class MainWindow(tk.Tk):
         self._out(f"\n{model.name} · {stamp}\n", "label_model")
         self._reset_prompt()
 
-        if model.provider in ("opencode", "claude"):
-            if not self._require_cli(model.provider):
-                self._finish_error(f"{model.provider} no está instalado.")
-                return
-            self._out(f"$ {local.command_text(model.provider, model.uid)}\n", "cmd")
-            thread = threading.Thread(
-                target=self._cli_worker, args=(model, prompt + extra_text), daemon=True
-            )
-            thread.start()
+        if model.provider in ("opencode", "claude") and not self._require_cli(model.provider):
+            self._finish_error(f"{model.provider} no está instalado.")
             return
-
         if model.provider == "ollama" and not self._require_ollama():
             self._finish_error("Ollama no está en marcha.")
             return
@@ -2337,11 +2387,21 @@ class MainWindow(tk.Tk):
         note = ""
         if image_b64 is not None and attachment is not None:
             note = f"\n[imagen adjunta: {attachment.name}]"
-        self.history.append({"role": "user", "content": prompt + extra_text + note})
+        user_content = prompt + extra_text + note
+        self.history.append({"role": "user", "content": user_content})
         self._pending_history = True
+        self._update_conversation_header()
+
+        if model.provider in ("opencode", "claude"):
+            self._out(f"$ {local.command_text(model.provider, model.uid)}\n", "cmd")
+            thread = threading.Thread(
+                target=self._cli_worker, args=(model, user_content), daemon=True
+            )
+            thread.start()
+            return
 
         if mode == "agent" and image_b64 is None:
-            thread = threading.Thread(target=self._agent_worker, args=(model, prompt), daemon=True)
+            thread = threading.Thread(target=self._agent_worker, args=(model, user_content), daemon=True)
         elif model.provider != "ollama":
             thread = threading.Thread(
                 target=self._openrouter_worker, args=(model, prompt, image_b64), daemon=True
@@ -2362,7 +2422,12 @@ class MainWindow(tk.Tk):
             collected.append(text)
             self.q.put(("delta", text))
 
-        messages = list(self.history)
+        messages, info = chat.build_messages(
+            self.history, limit=chat.context_limit_for(model)
+        )
+        note = chat.context_note(info)
+        if note:
+            self.q.put(("line", note, "dim"))
         if image_b64 and self.attachment is not None:
             mime = IMAGE_TYPES.get(self.attachment.suffix.lower(), "image/png")
             messages[-1] = {
@@ -2401,8 +2466,6 @@ class MainWindow(tk.Tk):
         root = self._current_project()
         base, key = self._api_endpoint(model.provider) if self._is_api(model.provider) else ("", "")
         touched: list[str] = []
-        base_history = list(self.history)
-        new_start = 1 + len(base_history)
 
         def emit(text: str, tag: str = "dim") -> None:
             self.q.put(("line", text, tag))
@@ -2421,7 +2484,15 @@ class MainWindow(tk.Tk):
                 self._ollama_worker(model, prompt, None)
                 return
 
-        messages: list[dict] = [{"role": "system", "content": agent.system_prompt(root)}] + base_history
+        messages, info = chat.build_messages(
+            self.history,
+            limit=chat.context_limit_for(model),
+            system_prompt=agent.system_prompt(root),
+        )
+        new_start = len(messages)
+        note = chat.context_note(info)
+        if note:
+            emit(note, "dim")
         usage_total: dict = {}
 
         def record(usage: dict) -> None:
@@ -2577,7 +2648,12 @@ class MainWindow(tk.Tk):
             collected.append(text)
             self.q.put(("delta", text))
 
-        messages = [dict(item) for item in self.history]
+        messages, info = chat.build_messages(
+            self.history, limit=chat.context_limit_for(model)
+        )
+        note = chat.context_note(info)
+        if note:
+            self.q.put(("line", note, "dim"))
         if image_b64:
             messages[-1]["images"] = [image_b64]
 
@@ -2598,17 +2674,9 @@ class MainWindow(tk.Tk):
         def register(proc) -> None:
             self.proc = proc
 
-        # Mantener el contexto de la conversación: se envía el historial previo
-        # (sin el mensaje actual, que ya está al final) al CLI.
-        prior = [m for m in self.history if m.get("role") in ("user", "assistant")]
-        # Excluye el último mensaje de usuario (el prompt actual) para no duplicarlo.
-        if prior and prior[-1].get("role") == "user":
-            prior = prior[:-1]
-        history_text = ""
-        for m in prior:
-            role = "Usuario" if m.get("role") == "user" else "Asistente"
-            history_text += f"{role}: {str(m.get('content') or '').strip()}\n\n"
-        full_prompt = (history_text + prompt) if history_text else prompt
+        # Mantener el contexto de la conversación: el CLI recibe el historial
+        # previo (sin el mensaje actual, que va al final) como texto.
+        full_prompt = chat.build_cli_prompt(self.history, prompt)
 
         try:
             local.run_prompt(
@@ -2690,6 +2758,7 @@ class MainWindow(tk.Tk):
         self._out(f"✕ {message}\n", "err")
         self._set_busy(False)
         self._set_status(message[:150])
+        self._update_conversation_header()
         try:
             self._save_current_conversation()
             self._save_conversation_state(include_current=True)
@@ -2813,6 +2882,7 @@ class MainWindow(tk.Tk):
         elif self._pending_history and self.history and self.history[-1].get("role") == "user":
             self.history.pop()
         self._pending_history = False
+        self._update_conversation_header()
         self._save_conversation_state(include_current=True)
 
     def _conversation_path(self) -> Path:
@@ -2898,12 +2968,16 @@ class MainWindow(tk.Tk):
             if role == "user":
                 self._out(f"\\nTú · {stamp}\\n", "label_user")
                 self._out(f"{content}\\n", "user")
+            elif role == "tool" or not content.strip():
+                # Las trazas internas de herramientas no se repiten al recuperar.
+                continue
             else:
                 name = self.selected.name if self.selected is not None else "Asistente"
                 self._out(f"\\n{name} · {stamp}\\n", "label_model")
                 self._out(f"{content}\\n", "normal")
         self._out("\\n(Conversación recuperada)\\n", "dim")
         self._loaded_conversation = None
+        self._update_conversation_header()
 
     def _restore_conversation_model(self) -> None:
         current = None
@@ -3034,11 +3108,76 @@ class MainWindow(tk.Tk):
         _button(actions, "Cerrar", win.destroy, kind="ghost", height=30, font_size=9).pack(side="right")
         listbox.bind("<Double-1>", lambda _e: load_selected())
 
+    def _open_how_it_works(self) -> None:
+        """Explica en la propia app cómo se construye el contexto de la conversación."""
+        win = tk.Toplevel(self)
+        win.title("Cómo funciona la conversación · AI Hub")
+        win.configure(bg=BG)
+        win.geometry("640x560")
+        win.minsize(520, 420)
+        win.transient(self)
+
+        container = tk.Frame(win, bg=BG, padx=20, pady=16)
+        container.pack(fill="both", expand=True)
+        tk.Label(
+            container,
+            text="Cómo funciona una IA con tus consultas",
+            bg=BG,
+            fg=TEXT,
+            font=(FONT, 15, "bold"),
+            anchor="w",
+        ).pack(anchor="w")
+        summary = "El historial es la memoria: cada consulta se envía junto con los turnos anteriores."
+        if self.selected is not None:
+            limit = chat.context_limit_for(self.selected)
+            info = chat.conversation_info(self.history, limit)
+            summary = (
+                f"Ahora mismo: {info.turns} turno(s), ~{chat.fmt_tokens(info.tokens)} "
+                f"de {chat.fmt_tokens(limit)} tokens en «{self.selected.name}»."
+            )
+        tk.Label(
+            container,
+            text=summary,
+            bg=BG,
+            fg=MUTED,
+            font=(FONT, 9),
+            anchor="w",
+            justify="left",
+            wraplength=580,
+        ).pack(anchor="w", pady=(4, 10))
+
+        body = tk.Text(
+            container,
+            bg=PANEL,
+            fg=TEXT,
+            relief="flat",
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=BORDER,
+            wrap="word",
+            font=(FONT, 9),
+            padx=16,
+            pady=12,
+            cursor="arrow",
+        )
+        body.pack(fill="both", expand=True)
+        body.tag_configure("title", foreground=ACCENT, font=(FONT, 10, "bold"), spacing1=10)
+        body.tag_configure("text", foreground=MUTED, font=(FONT, 9), spacing3=4)
+        for title, text in chat.EXPLAIN_STEPS:
+            body.insert("end", title + "\n", "title")
+            body.insert("end", text + "\n", "text")
+        body.configure(state="disabled")
+
+        _button(container, "Cerrar", win.destroy, kind="ghost", height=30, font_size=9).pack(
+            anchor="e", pady=(10, 0)
+        )
+
     def _load_conversation_record(self, record: dict) -> None:
         if self.busy:
             return
         self._save_current_conversation()
         self.history = [dict(m) for m in (record.get("messages") or []) if isinstance(m, dict)]
+        self._pending_history = False
         model = record.get("model")
         if isinstance(model, str) and ":" in model:
             provider, uid = model.split(":", 1)
@@ -3054,6 +3193,8 @@ class MainWindow(tk.Tk):
             if role == "user":
                 self._out(f"\\nTú · {stamp}\\n", "label_user")
                 self._out(f"{content}\\n", "user")
+            elif role == "tool" or not content.strip():
+                continue
             else:
                 name = self.selected.name if self.selected is not None else "Asistente"
                 self._out(f"\\n{name} · {stamp}\\n", "label_model")
@@ -3067,6 +3208,7 @@ class MainWindow(tk.Tk):
                         self.selected = item
                         self._update_detail()
                         break
+        self._update_conversation_header()
         self._save_conversation_state(include_current=True)
 
     def _copy_output(self, _event=None):
@@ -3228,6 +3370,7 @@ class MainWindow(tk.Tk):
             self._reset_prompt()
         self._clear_output()
         self._refresh_touched()
+        self._update_conversation_header()
         self._set_status("Chat nuevo")
         self._save_conversation_state(include_current=False)
 
@@ -3254,11 +3397,14 @@ class MainWindow(tk.Tk):
         if model.category == "code":
             mode, _reason = self._file_access(model)
             if mode == "agent":
-                note = "Describe lo que necesitas: el modelo leerá y modificará los archivos del proyecto."
+                note = "Describe lo que necesitas: el modelo leerá y modificará los archivos de la carpeta."
             elif mode == "cli":
-                note = "Describe lo que necesitas: el CLI leerá y modificará los archivos del proyecto."
+                note = "Describe lo que necesitas: el CLI leerá y modificará los archivos de la carpeta."
             else:
-                note = "Atención: la casilla de archivos está desactivada; el modelo solo responderá."
+                note = (
+                    "Puedes conversar sin carpeta. Para editar archivos, abre una carpeta en "
+                    "el panel derecho y activa «Leer y escribir archivos»."
+                )
             self._out(f"\n{note}\n", "dim")
         elif model.category == "image":
             self._out("\nDescribe la imagen y pulsa Generar.\n", "dim")
@@ -4104,7 +4250,7 @@ class MainWindow(tk.Tk):
         path = Path(path)
         if not path.is_dir():
             messagebox.showwarning(
-                "Proyecto no encontrado",
+                "Carpeta no encontrada",
                 f"La carpeta ya no existe:\n{path}",
                 parent=self,
             )
@@ -4116,24 +4262,14 @@ class MainWindow(tk.Tk):
         self._update_detail()
         if not self.busy and not self.history:
             self._clear_output()
-        self._set_status(f"Proyecto de trabajo: {path}")
-
-    def _set_no_project(self) -> None:
-        self.cfg["workdir"] = ""
-        config.update_config(workdir="")
-        self._update_project_button()
-        self._refresh_files()
-        self._update_detail()
-        if not self.busy and not self.history:
-            self._clear_output()
-        self._set_status("Sin proyecto: chat, imágenes y vídeos. Sin archivos del proyecto.")
+        self._set_status(f"Carpeta de trabajo: {path}")
 
     def _flow_blocked(self, model: catalog.Model) -> bool:
-        """Pide el proyecto si la acción lo necesita (CLI o herramientas de archivos)."""
+        """Pide la carpeta si la acción la necesita (CLI o herramientas de archivos)."""
         project = self._current_project()
         if model.provider in ("opencode", "claude") and project is None:
-            self._set_status("Paso 1: elige el proyecto donde trabajar")
-            self._open_project_picker()
+            self._set_status("Elige la carpeta de trabajo para este CLI")
+            self._open_project_folder()
             return True
         if (
             self._is_api(model.provider)
@@ -4142,14 +4278,14 @@ class MainWindow(tk.Tk):
             and project is None
         ):
             answer = messagebox.askyesno(
-                "Falta el proyecto",
-                "Has activado «Leer y escribir archivos», pero no hay proyecto elegido.\n\n"
-                "¿Quieres elegir uno ahora?\n\n"
+                "Falta la carpeta",
+                "Has activado «Leer y escribir archivos», pero no hay carpeta abierta.\n\n"
+                "¿Quieres elegir una ahora?\n\n"
                 "Si prefieres solo conversar, pulsa «No» y la app desactivará el acceso a archivos.",
                 parent=self,
             )
             if answer:
-                self._open_project_picker()
+                self._open_project_folder()
             else:
                 self.tools_var.set(False)
                 self._refresh_tools_hint()
@@ -4158,218 +4294,41 @@ class MainWindow(tk.Tk):
         return False
 
     def _flow_steps(self) -> list[tuple[bool, str, str]]:
-        """Estado de los cuatro pasos del flujo: (hecho, título, detalle)."""
+        """Estado del flujo de la conversación: (hecho, título, detalle)."""
         project = self._current_project()
         model = self.selected
         steps = [
-            (project is not None, "Proyecto", project.name if project else "elige uno con Ctrl+P"),
-            (model is not None, "Proveedor", catalog.PROVIDER_BY_ID[model.provider]["name"] if model else "elige en la columna izquierda"),
+            (
+                model is not None,
+                "Proveedor",
+                catalog.PROVIDER_BY_ID[model.provider]["name"] if model else "elige en la columna izquierda",
+            ),
             (model is not None, "Modelo", model.name if model else "elige en la lista"),
-            (bool(self.history), "Describe lo que necesitas", "escribe abajo y pulsa Enter"),
+            (
+                bool(self.history),
+                "Conversación",
+                "escribe abajo y pulsa Enter; el hilo se conserva",
+            ),
         ]
+        if model is not None and model.provider in ("opencode", "claude") and project is None:
+            steps.append((False, "Carpeta", "estos CLI necesitan una carpeta de trabajo"))
+        elif model is not None and model.category == "code" and project is not None:
+            steps.append((True, "Carpeta de archivos", project.name))
         return steps
 
     def _needs_project(self) -> bool:
-        """Avisa si la acción requiere un proyecto y no hay ninguno elegido."""
+        """Avisa si la acción requiere una carpeta y no hay ninguna abierta."""
         if self._current_project() is not None:
             return False
         messagebox.showinfo(
-            "Elige un proyecto",
-            "OpenCode, Claude Code y Ollama trabajan dentro de un proyecto.\n\n"
-            "Elige «Sin proyecto» solo si vas a generar imágenes, vídeos o chatear con OpenRouter.",
+            "Elige una carpeta",
+            "OpenCode, Claude Code y Ollama trabajan dentro de una carpeta.\n\n"
+            "Ábrela en el panel derecho con «abrir carpeta».\n\n"
+            "Para conversar o generar imágenes y vídeos no hace falta carpeta.",
             parent=self,
         )
-        self._open_project_picker()
+        self._open_project_folder()
         return True
-
-    def _open_project_picker(self, startup: bool = False) -> None:
-        win = tk.Toplevel(self)
-        win.title("Proyecto de trabajo · AI Hub")
-        win.configure(bg=BG)
-        win.transient(self)
-        win.grab_set()
-        win.resizable(False, True)
-
-        width = 660
-        listing_count = 1 + len(projects.list_projects(self.cfg))
-        height = max(420, min(580, 300 + listing_count * 34))
-        x = self.winfo_rootx() + (self.winfo_width() - width) // 2
-        y = self.winfo_rooty() + (self.winfo_height() - height) // 2
-        win.geometry(f"{width}x{height}+{max(0, x)}+{max(0, y)}")
-
-        container = tk.Frame(win, bg=BG, padx=24, pady=20)
-        container.pack(fill="both", expand=True)
-        container.columnconfigure(0, weight=1)
-        container.rowconfigure(3, weight=1)
-
-        tk.Label(
-            container, text="¿En qué proyecto trabajamos?", bg=BG, fg=TEXT, font=(FONT, 16, "bold")
-        ).grid(row=0, column=0, sticky="w")
-        tk.Label(
-            container,
-            text="Las consolas (OpenCode, Claude Code, Ollama) y las consultas se ejecutan dentro de esta carpeta. "
-            "Para imágenes y fotos no hace falta proyecto: elige «Sin proyecto».",
-            bg=BG,
-            fg=MUTED,
-            font=(FONT, 9),
-            wraplength=580,
-            justify="left",
-        ).grid(row=1, column=0, sticky="w", pady=(3, 14))
-
-        root = projects.root(self.cfg)
-        tree_frame = tk.Frame(container, bg=PANEL, highlightbackground=BORDER, highlightthickness=1)
-        tree_frame.grid(row=3, column=0, sticky="nsew")
-        tree_frame.rowconfigure(0, weight=1)
-        tree_frame.columnconfigure(0, weight=1)
-
-        tree = ttk.Treeview(
-            tree_frame,
-            columns=("name", "meta"),
-            show="headings",
-            style="AIH.Treeview",
-            selectmode="browse",
-        )
-        tree.heading("name", text="PROYECTO", anchor="w")
-        tree.heading("meta", text="DETALLE", anchor="w")
-        tree.column("name", width=220, minwidth=160, stretch=True)
-        tree.column("meta", width=360, minwidth=220, stretch=True)
-        tree.grid(row=0, column=0, sticky="nsew")
-        scroll = ttk.Scrollbar(
-            tree_frame, orient="vertical", command=tree.yview, style="AIH.Vertical.TScrollbar"
-        )
-        scroll.grid(row=0, column=1, sticky="ns")
-        tree.configure(yscrollcommand=scroll.set)
-        tree.tag_configure("root", foreground=CYAN)
-        tree.tag_configure("none", foreground=AMBER)
-
-        path_label = tk.Label(
-            container, text="", bg=BG, fg=DIM, font=(MONO, 8), anchor="w", wraplength=580, justify="left"
-        )
-        path_label.grid(row=4, column=0, sticky="ew", pady=(6, 0))
-
-        rows: list[dict] = []
-
-        def fill(select: Path | None = None) -> None:
-            rows.clear()
-            for item in tree.get_children():
-                tree.delete(item)
-            current = self._current_project()
-            listing = projects.list_projects(self.cfg)
-            if current is not None:
-                listing = projects.with_current(listing, current)
-            rows.append({"name": "Sin proyecto", "path": None, "none": True})
-            rows.extend(listing)
-            target = None
-            for index, item in enumerate(rows):
-                if item.get("none"):
-                    tree.insert(
-                        "",
-                        "end",
-                        iid=str(index),
-                        values=("Sin proyecto", "Solo imágenes, fotos y vídeos · sin carpeta"),
-                        tags=("none",),
-                    )
-                    if select is None and current is None:
-                        target = str(index)
-                    continue
-                tags = ("root",) if item.get("root") else ()
-                tree.insert(
-                    "",
-                    "end",
-                    iid=str(index),
-                    values=(item["name"], projects.detail_text(item)),
-                    tags=tags,
-                )
-                if select is not None:
-                    if item["path"] == select:
-                        target = str(index)
-                elif current is not None and item["path"] == current:
-                    target = str(index)
-            if target is None:
-                target = "0"
-            tree.selection_set(target)
-            tree.focus(target)
-            tree.see(target)
-            show_path()
-
-        def selected_row() -> dict | None:
-            selection = tree.selection()
-            if not selection:
-                return None
-            try:
-                return rows[int(selection[0])]
-            except (IndexError, ValueError):
-                return None
-
-        def show_path(_event=None) -> None:
-            row = selected_row()
-            if not row:
-                path_label.configure(text=str(root))
-            elif row.get("none"):
-                folder = config.image_dir(self.cfg)
-                path_label.configure(
-                    text=f"Sin proyecto · las imágenes y vídeos se guardan en {folder.parent}"
-                )
-            else:
-                path_label.configure(text=str(row["path"]))
-
-        def confirm(_event=None) -> None:
-            row = selected_row()
-            if not row:
-                return
-            if row.get("none"):
-                self._set_no_project()
-            else:
-                self._set_project(row["path"])
-            win.destroy()
-
-        def new_folder() -> None:
-            name = simpledialog.askstring(
-                "Nuevo proyecto",
-                "Nombre de la carpeta del proyecto:",
-                parent=win,
-            )
-            if not name:
-                return
-            try:
-                created = projects.create(root, name)
-            except Exception as exc:  # noqa: BLE001
-                messagebox.showerror("No se pudo crear", str(exc), parent=win)
-                return
-            fill(created)
-
-        def other_folder() -> None:
-            chosen = filedialog.askdirectory(
-                parent=win, initialdir=str(root), title="Elegir carpeta del proyecto", mustexist=True
-            )
-            if chosen:
-                fill(Path(chosen))
-
-        tree.bind("<<TreeviewSelect>>", show_path)
-        tree.bind("<Double-1>", confirm)
-        tree.bind("<Return>", confirm)
-
-        footer = tk.Frame(container, bg=BG)
-        footer.grid(row=5, column=0, sticky="ew", pady=(14, 0))
-        footer.columnconfigure(0, weight=1)
-
-        links = tk.Frame(footer, bg=BG)
-        links.grid(row=0, column=0, sticky="w")
-        _button(links, "Nueva carpeta…", new_folder, kind="link", height=0, font_size=9).pack(side="left")
-        _button(links, "Otro…", other_folder, kind="link", height=0, font_size=9).pack(
-            side="left", padx=(14, 0)
-        )
-
-        actions = tk.Frame(footer, bg=BG)
-        actions.grid(row=0, column=1, sticky="e")
-        _button(actions, "Trabajar aquí", confirm, kind="primary", height=34, bold=True).pack(side="right")
-        _button(actions, "Cancelar", win.destroy, kind="ghost", height=34).pack(side="right", padx=(0, 8))
-
-        win.bind("<Escape>", lambda _e: win.destroy())
-        fill()
-
-        if startup:
-            tree.focus_set()
 
     # -- ajustes ------------------------------------------------------------
 
@@ -4449,7 +4408,7 @@ class MainWindow(tk.Tk):
 
         tk.Label(
             container,
-            text="PROYECTO DE TRABAJO (CLIs) · vacío = sin proyecto",
+            text="CARPETA DE TRABAJO (CLIs) · vacío = sin carpeta",
             bg=BG,
             fg=DIM,
             font=(FONT, 8, "bold"),
