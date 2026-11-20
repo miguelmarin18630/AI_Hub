@@ -5,26 +5,45 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AI Hub · chat con modelos de IA</title>
   <meta name="description" content="Chat con modelos de IA gratuitos y baratos: OpenCode, Claude Code, Ollama y OpenRouter.">
-  <link rel="icon" href="/favicon.ico" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/styles.css?v=8">
+  <link rel="icon" href="/static/marin-mark-128.png" type="image/png">
+  <link rel="stylesheet" href="/static/styles.css?v=10">
 </head>
 <body>
   <div id="app" hidden>
     <header class="topbar">
-      <div class="brand">
-        <img class="logo" src="/aihub-logo-new.svg" alt="AI Hub" width="34" height="34">
-        <div class="brand-text">
-          <strong>AI HUB</strong>
-          <small>Chat con modelos de IA</small>
+      <div class="topbar-left">
+        <div class="brand">
+          <img class="logo" src="/static/marin-mark-128.png" alt="Marín" width="34" height="34">
+          <div class="brand-text">
+            <strong>AI HUB</strong>
+            <small>Chat con modelos de IA</small>
+          </div>
         </div>
+        <button id="btn-models-mobile" class="btn ghost mobile-only" title="Mostrar modelos">☰ Modelos</button>
       </div>
       <div class="top-actions">
         <button id="btn-project" class="chip" title="Elegir proyecto">Proyecto</button>
+        <button id="btn-history" class="btn ghost" title="Conversaciones guardadas">Historial</button>
         <button id="btn-refresh" class="btn ghost">⟳ Actualizar</button>
+        <button id="btn-detail" class="btn ghost tablet-only" title="Detalles del modelo">Detalles</button>
         <button id="btn-settings" class="btn ghost">⚙ Ajustes</button>
         <button id="btn-admin" class="btn ghost" hidden>Usuarios</button>
+        <button id="btn-help" class="icon-btn" title="Cómo funciona la conversación">?</button>
         <button id="btn-user" class="chip" title="Tu cuenta">·</button>
         <button id="btn-logout" class="btn ghost">Salir</button>
+      </div>
+      <button id="btn-mobile-menu" class="btn ghost mobile-only" title="Menú">⋯</button>
+      <div id="mobile-menu" class="mobile-menu" hidden>
+        <button type="button" data-action="models">☰ Modelos</button>
+        <button type="button" data-action="project">📁 Proyecto</button>
+        <button type="button" data-action="history">🕘 Historial</button>
+        <button type="button" data-action="detail">ℹ Detalles del modelo</button>
+        <button type="button" data-action="refresh">⟳ Actualizar catálogo</button>
+        <button type="button" data-action="settings">⚙ Ajustes</button>
+        <button type="button" data-action="admin" id="menu-admin" hidden>👥 Usuarios</button>
+        <button type="button" data-action="account">👤 Mi cuenta</button>
+        <button type="button" data-action="help">? Cómo funciona</button>
+        <button type="button" data-action="logout" class="danger-text">Salir</button>
       </div>
     </header>
 
@@ -81,6 +100,7 @@
           <div class="conv-titles">
             <strong id="conv-title">Elige un modelo</strong>
             <small id="conv-sub">Selecciona un modelo en la columna izquierda</small>
+            <small id="conv-context" class="usage-dim"></small>
           </div>
           <button id="btn-clear" class="btn ghost small">＋ Nuevo chat</button>
         </div>
@@ -165,7 +185,7 @@
   <div id="login-screen" class="center-screen" hidden>
     <div class="card login-card">
       <div class="login-brand">
-        <img class="logo" src="/aihub-logo-new.svg" alt="AI Hub" width="34" height="34">
+        <img class="logo logo-lg" src="/static/marin-logo.png" alt="Marín · marinweb.org" width="72" height="72">
         <div>
           <h1>AI HUB</h1>
           <p>Chat con modelos de IA</p>
@@ -197,9 +217,10 @@
     </div>
   </div>
 
+  <div id="backdrop" class="backdrop" hidden></div>
   <div id="modal-root"></div>
   <div id="toast-root"></div>
 
-  <script src="/static/app.js?v=7"></script>
+  <script src="/static/app.js?v=8"></script>
 </body>
 </html>

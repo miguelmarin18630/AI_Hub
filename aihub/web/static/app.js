@@ -15,10 +15,13 @@ const state = {
   selected: null,
   project: "",
   messages: [],
+  history: [],
+  conversationId: null,
   busy: false,
   generating: false,
   controller: null,
   filePath: "",
+  mobile: false,
 };
 
 /* ------------------------------------------------------------------ util */
@@ -47,6 +50,39 @@ function debounce(fn, ms) {
     timer = setTimeout(() => fn(...args), ms);
   };
 }
+
+function textOf(value) {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    return value
+      .filter((part) => part && typeof part === "object" && part.text)
+      .map((part) => String(part.text))
+      .join("\n");
+  }
+  return value == null ? "" : String(value);
+}
+
+function fmtWhen(stamp) {
+  const value = Number(stamp || 0) * 1000;
+  if (!value) return "";
+  const date = new Date(value);
+  const today = new Date();
+  if (date.toDateString() === today.toDateString()) {
+    return date.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+  }
+  return date.toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "2-digit" });
+}
+
+function fmtTokens(value) {
+  const n = Math.max(0, Number(value) || 0);
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(".", ",") + "M";
+  if (n >= 10_000) return Math.round(n / 1000) + "K";
+  if (n >= 1000) return (n / 1000).toFixed(1).replace(".", ",") + "K";
+  return String(n);
+}
+
+const isPhone = () => window.matchMedia("(max-width: 760px)").matches;
+const isNarrow = () => window.matchMedia("(max-width: 1100px)").matches;
 
 function toast(message, kind = "") {
   const root = $("toast-root");
@@ -171,24 +207,33 @@ async function startApp() {
   $("login-screen").hidden = true;
   $("app").hidden = false;
   $("btn-admin").hidden = state.user.role !== "admin";
+  $("menu-admin").hidden = state.user.role !== "admin";
   $("btn-user").textContent = state.user.name;
   const prefs = JSON.parse(localStorage.getItem("aihub.web") || "{}");
   state.category = prefs.category || "code";
   state.sort = prefs.sort || "price-asc";
   state.filter = prefs.filter || "all";
   state.providerFilter = prefs.provider || null;
+  state.mobile = isPhone();
+  if (state.mobile) $("layout").classList.add("collapsed");
   $("sort").value = state.sort;
   $("filter").value = state.filter;
   syncTabs();
   bindEvents();
   await loadCatalog();
-  await loadFiles();
-  restoreConversation();
+  const active = (state.projects || []).find((item) => item.active);
   const savedProject = localStorage.getItem("aihub.project");
-  if (savedProject && (state.projects || []).some((item) => item.id === savedProject)) {
+  if (active) {
+    state.project = active.id;
+  } else if (savedProject && (state.projects || []).some((item) => item.id === savedProject)) {
     state.project = savedProject;
-    renderProjectChip();
-    await loadFiles();
+  }
+  renderProjectChip();
+  await loadFiles();
+  await loadHistory();
+  if (isPhone()) {
+    $("layout").classList.add("collapsed");
+    updateBackdrop();
   }
 }
 
@@ -258,14 +303,33 @@ function bindEvents() {
     renderModels();
   });
 
-  $("btn-collapse").addEventListener("click", () => $("layout").classList.add("collapsed"));
-  $("rail-open").addEventListener("click", () => $("layout").classList.remove("collapsed"));
+  $("btn-collapse").addEventListener("click", () => toggleSidebar(true));
+  $("rail-open").addEventListener("click", () => toggleSidebar(false));
+  $("btn-models-mobile").addEventListener("click", () => toggleSidebar(false));
+  $("btn-mobile-menu").addEventListener("click", (event) => {
+    event.stopPropagation();
+    $("mobile-menu").hidden = !$("mobile-menu").hidden;
+  });
+  $("mobile-menu").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-action]");
+    if (button) handleAction(button.dataset.action);
+  });
+  document.addEventListener("click", (event) => {
+    const menu = $("mobile-menu");
+    if (!menu || menu.hidden) return;
+    if (menu.contains(event.target) || event.target.closest("#btn-mobile-menu")) return;
+    menu.hidden = true;
+  });
+  $("backdrop").addEventListener("click", closeDrawers);
 
   $("btn-refresh").addEventListener("click", () => refreshCatalog(true));
   $("btn-project").addEventListener("click", openProjects);
+  $("btn-history").addEventListener("click", openHistory);
+  $("btn-detail").addEventListener("click", toggleDetail);
   $("btn-settings").addEventListener("click", () => openSettings("main"));
   $("btn-admin").addEventListener("click", () => openSettings("admin"));
   $("btn-user").addEventListener("click", () => openSettings("account"));
+  $("btn-help").addEventListener("click", openHelp);
   $("btn-logout").addEventListener("click", logout);
 
   $("btn-clear").addEventListener("click", clearChat);
@@ -294,8 +358,65 @@ function bindEvents() {
   });
 
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") closeModal();
+    if (event.key === "Escape") {
+      closeModal();
+      $("mobile-menu").hidden = true;
+      closeDrawers();
+    }
   });
+
+  window.addEventListener("resize", debounce(() => {
+    if (isPhone()) {
+      $("layout").classList.add("collapsed");
+      $("layout").classList.remove("show-detail");
+    } else {
+      $("layout").classList.remove("collapsed", "show-detail");
+    }
+    updateBackdrop();
+  }, 180));
+}
+
+function toggleSidebar(forceCollapsed) {
+  const layout = $("layout");
+  const collapsed = typeof forceCollapsed === "boolean" ? forceCollapsed : !layout.classList.contains("collapsed");
+  layout.classList.toggle("collapsed", collapsed);
+  if (!collapsed) layout.classList.remove("show-detail");
+  updateBackdrop();
+}
+
+function toggleDetail() {
+  const layout = $("layout");
+  layout.classList.toggle("show-detail");
+  if (layout.classList.contains("show-detail")) layout.classList.add("collapsed");
+  updateBackdrop();
+}
+
+function closeDrawers() {
+  const layout = $("layout");
+  layout.classList.add("collapsed");
+  layout.classList.remove("show-detail");
+  $("mobile-menu").hidden = true;
+  updateBackdrop();
+}
+
+function updateBackdrop() {
+  const layout = $("layout");
+  const open = !layout.classList.contains("collapsed") || layout.classList.contains("show-detail");
+  $("backdrop").hidden = !(open && isNarrow());
+}
+
+function handleAction(action) {
+  $("mobile-menu").hidden = true;
+  if (action === "models") toggleSidebar(false);
+  else if (action === "project") openProjects();
+  else if (action === "history") openHistory();
+  else if (action === "detail") toggleDetail();
+  else if (action === "refresh") refreshCatalog(true);
+  else if (action === "settings") openSettings("main");
+  else if (action === "admin") openSettings("admin");
+  else if (action === "account") openSettings("account");
+  else if (action === "help") openHelp();
+  else if (action === "logout") logout();
 }
 
 /* ------------------------------------------------------------------ catálogo */
@@ -311,7 +432,7 @@ async function loadCatalog() {
   if (preferred) {
     const [provider, uid] = preferred.split("::");
     const found = state.models.find((item) => item.provider === provider && item.uid === uid);
-    if (found) selectModel(found);
+    if (found) selectModel(found, false);
   }
   renderProviders();
   renderModels();
@@ -426,7 +547,7 @@ function renderModels() {
   const frag = document.createDocumentFragment();
   for (const model of items) {
     const row = document.createElement("div");
-    row.className = "model-row" + (state.selected && state.selected.uid === model.uid ? " selected" : "");
+    row.className = "model-row" + (state.selected && state.selected.uid === model.uid && state.selected.provider === model.provider ? " selected" : "");
     row.dataset.uid = model.uid;
     row.dataset.provider = model.provider;
     const priceClass = model.free ? "free" : (model.effective_price == null ? "unknown" : "");
@@ -442,15 +563,27 @@ function renderModels() {
   root.appendChild(frag);
 }
 
-function selectModel(model) {
+function selectModel(model, collapseOnMobile = true) {
   state.selected = model;
+  const category = model.category === "code" ? "code" : "media";
+  if (state.category !== category) {
+    state.category = category;
+    savePrefs();
+    syncTabs();
+    renderProviders();
+  }
   localStorage.setItem("aihub.model", `${model.provider}::${model.uid}`);
   renderModels();
   renderDetail();
   renderCenterMode();
+  updateConvContext();
   const toolsBox = $("tools-label");
   if (model.category !== "code") toolsBox.style.opacity = "0.45";
   else toolsBox.style.opacity = "1";
+  if (collapseOnMobile && isPhone()) {
+    $("layout").classList.add("collapsed");
+    updateBackdrop();
+  }
 }
 
 function renderDetail() {
@@ -462,7 +595,10 @@ function renderDetail() {
     $("quota-text").textContent = "";
     return;
   }
-  const isFavorite = state.favorites.includes(`${model.provider}:${model.uid}`);
+  const isFavorite = (state.favorites || []).includes(`${model.provider}:${model.uid}`);
+  const tags = (model.tags || [])
+    .map((tag) => `<span class="tag">${esc(tag)}</span>`)
+    .join("");
   root.innerHTML = `
     <div class="detail-title">
       <span class="model-glyph" style="color:${esc(model.provider_color)}">${esc(model.provider_glyph)}</span>
@@ -476,19 +612,52 @@ function renderDetail() {
     <div class="detail-desc">${esc(model.desc || "")}</div>
     <div class="detail-tags">${tags}</div>
     <div class="usage-dim" style="margin-top:8px">${esc(model.context_text)} contexto · ${esc(model.unit)}</div>
-    <div style="margin-top:10px">
+    <div class="detail-actions">
       <button id="btn-favorite" class="btn ghost small">${isFavorite ? "★ Favorito" : "☆ Favorito"}</button>
+      <button id="btn-copy-id" class="btn ghost small" title="Copiar el identificador del modelo">Copiar ID</button>
     </div>`;
-  $("btn-favorite").addEventListener("click", toggleFavorite);  $("conv-title").textContent = model.name;
+  $("btn-favorite").addEventListener("click", toggleFavorite);
+  $("btn-copy-id").addEventListener("click", () => copyText(model.uid));
+  $("conv-title").textContent = model.name;
   $("conv-sub").textContent = `${model.provider_name} · ${model.price_text}`;
   loadUsage();
+}
+
+async function copyText(value) {
+  try {
+    await navigator.clipboard.writeText(String(value));
+    toast("Copiado.", "ok");
+  } catch {
+    toast("No se pudo copiar.", "error");
+  }
+}
+
+async function loadUsage() {
+  const model = state.selected;
+  if (!model) return;
+  try {
+    const data = await api(
+      `/api/usage?provider=${encodeURIComponent(model.provider)}&uid=${encodeURIComponent(model.uid)}`
+    );
+    $("usage-text").textContent = data.text || "Sin consumo todavía.";
+    const today = data.today || {};
+    const bits = [];
+    if (today.requests) bits.push(`${today.requests} petición${today.requests === 1 ? "" : "es"} hoy`);
+    if (today.cost) bits.push(`$${Number(today.cost).toFixed(4)} hoy`);
+    if (today.images) bits.push(`${today.images} imagen${today.images === 1 ? "" : "es"} hoy`);
+    if (today.videos) bits.push(`${today.videos} vídeo${today.videos === 1 ? "" : "s"} hoy`);
+    $("quota-text").textContent = bits.join(" · ");
+  } catch (exc) {
+    $("usage-text").textContent = "No se pudo leer el consumo.";
+    $("quota-text").textContent = "";
+  }
 }
 
 async function toggleFavorite() {
   const model = state.selected;
   if (!model) return;
   const key = `${model.provider}:${model.uid}`;
-  const isFavorite = state.favorites.includes(key);
+  const isFavorite = (state.favorites || []).includes(key);
   try {
     const data = await api("/api/favorites", { method: "POST", body: { provider: model.provider, uid: model.uid, favorite: !isFavorite } });
     state.favorites = data.favorites || state.favorites;
@@ -531,15 +700,71 @@ function addMessage(kind, text) {
   return item;
 }
 
-function saveConversation() {
+function modelKey() {
+  return state.selected ? `${state.selected.provider}:${state.selected.uid}` : "";
+}
+
+function renderMessages() {
+  const root = $("messages");
+  root.innerHTML = "";
+  for (const item of state.messages || []) {
+    const role = item.role;
+    if (role !== "user" && role !== "assistant") continue;
+    const text = textOf(item.content);
+    if (!text.trim()) continue;
+    addMessage(role, text);
+  }
+  updateConvContext();
+}
+
+function updateConvContext(context) {
+  const el = $("conv-context");
+  if (!el) return;
+  if (context && context.limit) {
+    el.textContent = `${context.turns || 0} turno${context.turns === 1 ? "" : "s"} · ~${fmtTokens(context.tokens)} de ${fmtTokens(context.limit)} tokens`;
+    return;
+  }
+  const turns = (state.messages || []).filter((item) => item.role === "user").length;
+  if (!turns) {
+    el.textContent = "";
+    return;
+  }
+  const chars = state.messages.reduce((total, item) => total + textOf(item.content).length, 0);
+  el.textContent = `${turns} turno${turns === 1 ? "" : "s"} · ~${fmtTokens(Math.round(chars / 4))} tokens`;
+}
+
+async function loadHistory() {
   try {
-    localStorage.setItem("aihub.conversation", JSON.stringify(state.messages || []));
+    const data = await api("/api/history");
+    state.history = data.items || [];
+    if (data.current && Array.isArray(data.current.messages) && data.current.messages.length) {
+      applyConversation(data.current);
+      return;
+    }
   } catch (exc) {
-    /* ignore */
+    /* sin historial en el servidor: se intenta el del navegador */
+  }
+  restoreLocalConversation();
+}
+
+function applyConversation(record) {
+  state.conversationId = record.id || null;
+  state.messages = (record.messages || [])
+    .filter((item) => item && ["user", "assistant", "tool"].includes(item.role))
+    .map((item) => ({ role: item.role, content: textOf(item.content) }));
+  renderMessages();
+  if (record.model) {
+    const index = String(record.model).indexOf(":");
+    if (index > 0) {
+      const provider = record.model.slice(0, index);
+      const uid = record.model.slice(index + 1);
+      const found = state.models.find((item) => item.provider === provider && item.uid === uid);
+      if (found) selectModel(found, false);
+    }
   }
 }
 
-function restoreConversation() {
+function restoreLocalConversation() {
   let messages = [];
   try {
     messages = JSON.parse(localStorage.getItem("aihub.conversation") || "[]");
@@ -547,10 +772,142 @@ function restoreConversation() {
     messages = [];
   }
   if (!Array.isArray(messages) || !messages.length) return;
-  state.messages = messages.filter((item) => item && (item.role === "user" || item.role === "assistant") && typeof item.content === "string");
+  state.messages = messages
+    .filter((item) => item && ["user", "assistant"].includes(item.role))
+    .map((item) => ({ role: item.role, content: textOf(item.content) }));
+  renderMessages();
+  if (state.messages.length) saveConversation();
+}
+
+async function saveConversation() {
+  try {
+    localStorage.setItem("aihub.conversation", JSON.stringify(state.messages || []));
+  } catch (exc) {
+    /* ignore */
+  }
+  if (!(state.messages || []).some((item) => item.role === "user")) return;
+  if (!(state.messages || []).some((item) => item.role === "assistant" && textOf(item.content).trim())) return;
+  try {
+    const data = await api("/api/history/save", {
+      method: "POST",
+      body: {
+        id: state.conversationId,
+        model: modelKey(),
+        messages: state.messages,
+      },
+    });
+    if (data.conversation) {
+      state.conversationId = data.conversation.id;
+      state.history = [data.conversation, ...state.history.filter((item) => item.id !== data.conversation.id)].slice(0, 30);
+    }
+  } catch (exc) {
+    /* el chat sigue funcionando aunque no se pueda guardar el historial */
+  }
+}
+
+async function clearChat() {
+  if (state.busy) {
+    toast("Espera a que termine la respuesta actual.", "error");
+    return;
+  }
+  state.messages = [];
+  state.conversationId = null;
   $("messages").innerHTML = "";
-  for (const item of state.messages) {
-    addMessage(item.role, item.content);
+  updateConvContext();
+  try {
+    localStorage.removeItem("aihub.conversation");
+  } catch (exc) {
+    /* ignore */
+  }
+  try {
+    await api("/api/history/new", { method: "POST", body: {} });
+  } catch (exc) {
+    /* ignore */
+  }
+  $("prompt").focus();
+}
+
+async function openHistory() {
+  let data;
+  try {
+    data = await api("/api/history");
+  } catch (exc) {
+    toast(exc.message, "error");
+    return;
+  }
+  state.history = data.items || [];
+  const currentId = data.current && data.current.id;
+  const rows = state.history.length
+    ? state.history.map((item) => `
+      <div class="history-row${item.id === currentId ? " current" : ""}" data-id="${esc(item.id)}">
+        <div class="history-main">
+          <strong>${esc(item.title || "Chat sin título")}</strong>
+          <small>${esc(item.model || "sin modelo")} · ${esc(fmtWhen(item.updated))}</small>
+        </div>
+        <div class="history-actions">
+          <button class="btn ghost mini" data-open="${esc(item.id)}">Abrir</button>
+          <button class="btn danger mini" data-remove="${esc(item.id)}">Borrar</button>
+        </div>
+      </div>`).join("")
+    : '<p class="hint">Todavía no hay conversaciones guardadas.</p>';
+  openModal(`
+    <div class="modal-head"><h2>Historial</h2><button class="icon-btn" data-close>Cerrar ✕</button></div>
+    <section>
+      <p class="hint">Las conversaciones se guardan en el servidor y se comparten con la app de escritorio si tu cuenta está vinculada.</p>
+      <div class="history-list">${rows}</div>
+      <div class="modal-actions">
+        <button id="btn-history-new" class="btn ghost">＋ Nuevo chat</button>
+      </div>
+    </section>`);
+  $("modal-root").querySelector("[data-close]").addEventListener("click", closeModal);
+  $("btn-history-new").addEventListener("click", async () => {
+    closeModal();
+    await clearChat();
+  });
+  $("modal-root").querySelectorAll("[data-open]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      try {
+        const result = await api("/api/history/open", { method: "POST", body: { id: button.dataset.open } });
+        applyConversation(result.conversation);
+        closeModal();
+        toast("Conversación abierta.", "ok");
+      } catch (exc) {
+        toast(exc.message, "error");
+      }
+    });
+  });
+  $("modal-root").querySelectorAll("[data-remove]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      if (!confirm("¿Borrar esta conversación del historial?")) return;
+      try {
+        await api("/api/history/delete", { method: "POST", body: { id: button.dataset.remove } });
+        if (state.conversationId === button.dataset.remove) {
+          state.conversationId = null;
+          state.messages = [];
+          $("messages").innerHTML = "";
+          updateConvContext();
+        }
+        await openHistory();
+      } catch (exc) {
+        toast(exc.message, "error");
+      }
+    });
+  });
+}
+
+async function openHelp() {
+  try {
+    const data = await api("/api/help");
+    const body = String(data.text || "")
+      .split("\n\n")
+      .map((block) => `<p>${esc(block).replace(/\n/g, "<br>")}</p>`)
+      .join("");
+    openModal(`
+      <div class="modal-head"><h2>Cómo funciona la conversación</h2><button class="icon-btn" data-close>Cerrar ✕</button></div>
+      <section class="help-text">${body}</section>`);
+    $("modal-root").querySelector("[data-close]").addEventListener("click", closeModal);
+  } catch (exc) {
+    toast(exc.message, "error");
   }
 }
 
@@ -619,6 +976,7 @@ async function sendChat() {
             addMessage("tool", `${event.status === "error" ? "⚠" : event.status === "done" ? "✓" : "⚙"} ${event.name} · ${event.detail || ""}`);
           } else if (event.type === "done") {
             $("chat-status").textContent = `Listo en ${event.elapsed}s · ${event.usage_text || "sin consumo"}`;
+            updateConvContext(event.context);
             if (event.usage_text) loadUsage();
             loadFiles();
           } else if (event.type === "error") {
@@ -649,7 +1007,7 @@ async function sendChat() {
     state.controller = null;
     $("btn-send").disabled = false;
     $("btn-stop").hidden = true;
-    saveConversation();
+    await saveConversation();
   }
 }
 
@@ -705,56 +1063,91 @@ function renderProjectChip() {
   $("btn-project").textContent = label;
 }
 
+function applyProjects(projects) {
+  if (!Array.isArray(projects)) return;
+  state.projects = projects;
+  const active = projects.find((item) => item.active);
+  state.project = active ? active.id : "";
+  renderProjectChip();
+}
+
 function openProjects() {
   const rows = (state.projects || []).map((item) => `
     <tr>
-      <td>${esc(item.name)}</td>
+      <td>${esc(item.name)}${item.outside ? ' <small class="usage-dim">(fuera de proyectos)</small>' : ""}</td>
       <td>${esc((item.kinds || []).join(", ") || "carpeta")}</td>
       <td>${item.count}</td>
       <td class="user-actions">
         ${item.active ? '<span class="usage-dim">actual</span>' : `<button class="btn ghost mini" data-select="${esc(item.id)}">Usar</button>`}
       </td>
     </tr>`).join("");
+  const canOpen = state.user.role === "admin" || state.user.desktop;
   openModal(`
     <div class="modal-head"><h2>Proyectos</h2><button class="icon-btn" data-close>Cerrar ✕</button></div>
     <section>
-      <p class="hint">Cada cuenta tiene sus propios proyectos, dentro de su carpeta personal del servidor.</p>
-      <table class="user-table"><thead><tr><th>Proyecto</th><th>Tipo</th><th>Elementos</th><th></th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="4">Todavía no hay proyectos.</td></tr>'}</tbody></table>
+      <p class="hint">Si tu cuenta está vinculada a la app de escritorio, aquí aparecen las mismas carpetas y la misma carpeta abierta.</p>
+      <div class="table-wrap">
+        <table class="user-table"><thead><tr><th>Proyecto</th><th>Tipo</th><th>Elementos</th><th></th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="4">Todavía no hay proyectos.</td></tr>'}</tbody></table>
+      </div>
       <div class="modal-row">
         <input id="new-project" type="text" placeholder="Nombre del proyecto nuevo">
         <button id="btn-create-project" class="btn primary" style="flex:0 0 auto">Crear</button>
       </div>
+      ${canOpen ? `
+      <div class="modal-row">
+        <input id="open-path" type="text" placeholder="Abrir otra carpeta (ruta completa, p. ej. C:\\Proyectos\\Mi carpeta)">
+        <button id="btn-open-path" class="btn ghost" style="flex:0 0 auto">Abrir</button>
+      </div>` : ""}
       <div class="modal-actions">
-        <button class="btn ghost" data-select="">Sin proyecto</button>
+        <button class="btn ghost" id="btn-no-project">Sin proyecto</button>
       </div>
     </section>`);
-  document.querySelector("#modal-root").addEventListener("click", async (event) => {
-    if (event.target.closest("[data-close]")) { closeModal(); return; }
-    const select = event.target.closest("[data-select]");
-    if (!select) return;
-    await chooseProject(select.dataset.select);
+  $("modal-root").querySelector("[data-close]").addEventListener("click", closeModal);
+  $("modal-root").querySelectorAll("[data-select]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await chooseProject(button.dataset.select);
+      closeModal();
+    });
+  });
+  $("btn-no-project").addEventListener("click", async () => {
+    await chooseProject("");
     closeModal();
   });
   $("btn-create-project").addEventListener("click", async () => {
     const name = $("new-project").value.trim();
     if (!name) return;
     try {
-      await api("/api/project/create", { method: "POST", body: { name } });
+      const data = await api("/api/project/create", { method: "POST", body: { name } });
+      applyProjects(data.projects);
       toast("Proyecto creado.", "ok");
-      await loadCatalog();
+      await loadFiles();
       closeModal();
     } catch (exc) { toast(exc.message, "error"); }
   });
+  if (canOpen) {
+    $("btn-open-path").addEventListener("click", async () => {
+      const path = $("open-path").value.trim();
+      if (!path) return;
+      try {
+        const data = await api("/api/project/select", { method: "POST", body: { path } });
+        applyProjects(data.projects);
+        state.filePath = "";
+        localStorage.setItem("aihub.project", state.project);
+        await loadFiles();
+        toast(`Carpeta: ${data.name}`, "ok");
+        closeModal();
+      } catch (exc) { toast(exc.message, "error"); }
+    });
+  }
 }
 
 async function chooseProject(id) {
   try {
     const data = await api("/api/project/select", { method: "POST", body: { name: id } });
-    state.project = id;
+    applyProjects(data.projects);
     state.filePath = "";
-    localStorage.setItem("aihub.project", id);
-    await loadCatalog();
+    localStorage.setItem("aihub.project", state.project);
     await loadFiles();
     toast(data.workdir ? `Proyecto: ${data.name}` : "Sin proyecto.", "ok");
   } catch (exc) {
@@ -833,11 +1226,21 @@ async function openSettings(tab = "main") {
   const userRows = users.map((item) => `
     <tr>
       <td>${esc(item.name)}</td><td>${esc(item.id)}</td><td>${esc(item.role)}</td>
+      <td>${item.desktop ? '<span class="tag">escritorio</span>' : '<span class="usage-dim">propia</span>'}
+        ${item.data_dir ? `<div class="usage-dim data-path">${esc(item.data_dir)}</div>` : ""}</td>
       <td class="user-actions">
+        <button class="btn ghost mini" data-user-data="${esc(item.id)}" data-dir="${esc(item.data_dir || "")}">Datos</button>
         <button class="btn ghost mini" data-reset-user="${esc(item.id)}">Contraseña</button>
         ${item.id === state.user.id ? "" : `<button class="btn danger mini" data-delete-user="${esc(item.id)}">Borrar</button>`}
       </td>
     </tr>`).join("");
+  const me = users.find((item) => item.id === state.user.id) || {
+    desktop: !!state.user.desktop,
+    data_dir: "",
+  };
+  const dataLabel = me.desktop
+    ? `App de escritorio${me.data_dir ? " · " + esc(me.data_dir) : ""}`
+    : "Carpeta propia de la web";
   openModal(`
     <div class="modal-head"><h2>Ajustes</h2><button class="icon-btn" data-close>Cerrar ✕</button></div>
     <section id="settings-main">
@@ -853,8 +1256,10 @@ async function openSettings(tab = "main") {
     <section>
       <h3>PROVEEDORES PROPIOS</h3>
       <p class="hint">APIs compatibles con OpenAI (OpenAI, Gemini, Groq, DeepSeek, Mistral, Together o un servidor local).</p>
-      <table class="user-table"><thead><tr><th>Nombre</th><th>URL</th><th>Clave</th><th></th></tr></thead>
-      <tbody>${providerRows || '<tr><td colspan="4">Sin proveedores propios.</td></tr>'}</tbody></table>
+      <div class="table-wrap">
+        <table class="user-table"><thead><tr><th>Nombre</th><th>URL</th><th>Clave</th><th></th></tr></thead>
+        <tbody>${providerRows || '<tr><td colspan="4">Sin proveedores propios.</td></tr>'}</tbody></table>
+      </div>
       <div class="modal-row">
         <select id="preset" class="select">
           ${(settings.presets || []).map((item) => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join("")}
@@ -871,6 +1276,14 @@ async function openSettings(tab = "main") {
     </section>
     <section>
       <h3>MI CUENTA</h3>
+      <div class="account-data">
+        <div>
+          <strong>Datos</strong>
+          <div class="usage-dim">${dataLabel}</div>
+        </div>
+        ${state.user.role === "admin" ? `<button id="btn-link-desktop" class="btn ghost small">${me.desktop ? "Separar del escritorio" : "Vincular con el escritorio"}</button>` : ""}
+      </div>
+      <p class="hint">Al vincular, esta cuenta usa el mismo historial, claves, favoritos y carpetas que la app de escritorio de este equipo.</p>
       <div class="modal-row">
         <input id="pw-current" type="password" placeholder="Contraseña actual" autocomplete="off">
         <input id="pw-new" type="password" placeholder="Contraseña nueva (mínimo 8)" autocomplete="off">
@@ -880,8 +1293,10 @@ async function openSettings(tab = "main") {
     ${state.user.role === "admin" ? `
     <section id="settings-admin">
       <h3>USUARIOS DE LA FAMILIA</h3>
-      <table class="user-table"><thead><tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th></th></tr></thead>
-      <tbody>${userRows || '<tr><td colspan="4">Sin usuarios.</td></tr>'}</tbody></table>
+      <div class="table-wrap">
+        <table class="user-table"><thead><tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th>Datos</th><th></th></tr></thead>
+        <tbody>${userRows || '<tr><td colspan="5">Sin usuarios.</td></tr>'}</tbody></table>
+      </div>
       <div class="modal-row">
         <input id="new-user-name" type="text" placeholder="Nombre">
         <input id="new-user-id" type="text" placeholder="Usuario (para entrar)">
@@ -963,7 +1378,44 @@ async function openSettings(tab = "main") {
       await openSettings("admin");
     } catch (exc) { toast(exc.message, "error"); }
   });
-  root.addEventListener("click", async (event) => {
+  root.querySelector("#btn-link-desktop")?.addEventListener("click", async () => {
+    const link = !me.desktop;
+    const question = link
+      ? "¿Vincular esta cuenta con la app de escritorio? Compartirá historial, claves, favoritos y carpetas."
+      : "¿Separar esta cuenta del escritorio? Volverá a usar su carpeta propia de la web (los datos del escritorio no se borran).";
+    if (!confirm(question)) return;
+    try {
+      await api("/api/admin/users/data", {
+        method: "POST",
+        body: { id: state.user.id, data_dir: link ? "__desktop__" : "" },
+      });
+      toast(link ? "Cuenta vinculada con el escritorio." : "Cuenta separada del escritorio.", "ok");
+      setTimeout(() => location.reload(), 700);
+    } catch (exc) { toast(exc.message, "error"); }
+  });
+  root.onclick = async (event) => {
+    const dataUser = event.target.closest("[data-user-data]");
+    if (dataUser) {
+      const current = dataUser.dataset.dir || "";
+      const value = prompt(
+        "Carpeta de datos para este usuario:\n\n" +
+        "· Vacío: carpeta propia de la web\n" +
+        "· __desktop__: app de escritorio de este equipo\n" +
+        "· O una ruta absoluta, por ejemplo C:\\\\Proyectos",
+        current
+      );
+      if (value === null) return;
+      try {
+        await api("/api/admin/users/data", {
+          method: "POST",
+          body: { id: dataUser.dataset.userData, data_dir: value.trim() },
+        });
+        toast("Carpeta de datos actualizada.", "ok");
+        if (dataUser.dataset.userData === state.user.id) location.reload();
+        else await openSettings("admin");
+      } catch (exc) { toast(exc.message, "error"); }
+      return;
+    }
     const editProvider = event.target.closest("[data-edit-provider]");
     if (editProvider) {
       closeModal();
@@ -997,7 +1449,7 @@ async function openSettings(tab = "main") {
         await openSettings("admin");
       } catch (exc) { toast(exc.message, "error"); }
     }
-  });
+  };
 }
 
 async function openEditProvider(id) {
@@ -1046,6 +1498,8 @@ async function openEditProvider(id) {
 async function logout() {
   try { await api("/api/logout", { method: "POST", body: {} }); } catch {}
   localStorage.removeItem("aihub.model");
+  localStorage.removeItem("aihub.conversation");
+  localStorage.removeItem("aihub.project");
   location.reload();
 }
 

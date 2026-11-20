@@ -26,6 +26,45 @@ en `%APPDATA%\AIHub\web\users\<usuario>` con:
 - sus proyectos y archivos;
 - su consumo por modelo.
 
+## 2.1. Compartir los datos con la app de escritorio
+
+La web y el escritorio son la misma app: lo único que cambia es la forma de
+entrar. Puedes hacer que tu cuenta web trabaje directamente sobre la carpeta del
+escritorio (`%APPDATA%\AIHub`) y así ver el mismo historial, los mismos
+favoritos, la misma clave de OpenRouter y las mismas carpetas que en la app de
+escritorio.
+
+1. Entra en la web con tu cuenta.
+2. Abre **Ajustes → Mi cuenta** y pulsa **Vincular con el escritorio**.
+   El administrador también puede hacerlo desde **Usuarios de la familia →
+   Datos**.
+3. Recarga la página: el historial, los proyectos y los archivos serán los del
+   escritorio.
+
+La vinculación solo cambia la carpeta de datos de esa cuenta. Las demás cuentas
+familiares siguen aisladas en `%APPDATA%\AIHub\web\users\<usuario>` y no ven
+nada de las demás.
+
+> **Importante:** evita usar el escritorio y la web a la vez sobre la misma
+> conversación. Los dos escriben en `conversations.json`; si guardas desde ambos
+> sitios, gana el último guardado. Termina una conversación en un sitio antes de
+> continuarla en el otro.
+
+## 2.2. Uso desde el móvil
+
+La interfaz se adapta al teléfono:
+
+- La barra superior se reduce a **Modelos** y al menú **⋯**, que reúne Historial,
+  Detalles, Ayuda, Ajustes y la cuenta.
+- El panel de modelos y el de detalles se abren como cajones laterales. Se
+  cierran tocando fuera o al elegir un modelo.
+- El historial y los ajustes ocupan la pantalla completa y se pueden desplazar.
+- El compositor deja el botón **Enviar** a todo el ancho y oculta el estado
+  cuando está vacío.
+
+Desde el navegador del móvil puedes usar **Añadir a pantalla de inicio** para
+abrirla como una app.
+
 ## 3. Publicar en marinweb.org (Cloudflare)
 
 El servidor escucha en `127.0.0.1:8765`. Para exponerlo con tu dominio:
@@ -73,6 +112,17 @@ El servidor escucha en `127.0.0.1:8765`. Para exponerlo con tu dominio:
 Después, la app queda disponible en https://aihub.marinweb.org con HTTPS y la
 cookie de sesión marcada como segura.
 
+### Abrir el túnel en el día a día
+
+Ya está creado el túnel `aihub` apuntando a `aihub.marinweb.org`. Para abrirlo:
+
+- Doble clic en **`Iniciar_Tunel.bat`** (muestra el registro; ciérralo con Ctrl+C).
+- O doble clic en **`Iniciar_Tunel.vbs`** (sin ventana; se cierra desde el
+  Administrador de tareas buscando `cloudflared`).
+
+Orden recomendado: primero **`Iniciar_Web.vbs`** (el servidor) y después el
+túnel. El túnel no necesita volver a crearse ni volver a configurarse.
+
 ## 4. Arranque automático (opcional)
 
 Para que el servidor arranque con Windows, crea una tarea en el Programador de
@@ -87,9 +137,13 @@ iniciar sesión. El túnel de Cloudflare puede arrancarse igual con
   acceso externo.
 - Las contraseñas se guardan con PBKDF2-HMAC-SHA256.
 - La app aplica un límite de intentos de inicio de sesión por IP.
+- Solo el administrador y las cuentas vinculadas al escritorio pueden abrir
+  rutas absolutas del equipo; el resto queda dentro de sus proyectos.
 - No publiques el servidor directamente en internet sin HTTPS y sin contraseña.
 
 ## 6. Copias de seguridad
 
 Copia la carpeta `%APPDATA%\AIHub\web` (cuentas, claves, proyectos y consumo).
-Restaurarla en otra máquina deja todo igual.
+Si tu cuenta está vinculada al escritorio, sus datos están en
+`%APPDATA%\AIHub` (configuración, historial y proyectos), así que incluye también
+esa carpeta en la copia.

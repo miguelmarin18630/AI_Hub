@@ -97,6 +97,8 @@ label > input, label > select { margin-top: 4px; }
 /* ---------- cabecera ---------- */
 #app { display: flex; flex-direction: column; height: 100vh; }
 .topbar {
+  position: relative;
+  z-index: 60;
   height: 62px;
   flex: 0 0 auto;
   display: flex;
@@ -111,12 +113,51 @@ label > input, label > select { margin-top: 4px; }
 .logo {
   width: 34px; height: 34px;
   border-radius: 9px;
-  /* fallback: el texto "＋" queda oculto; la imagen SVG reemplaza este estilo */
+  background: #ffffff;
+  object-fit: contain;
+}
+.logo-lg {
+  width: 72px; height: 72px;
+  border-radius: 14px;
 }
 .brand-text { line-height: 1.2; }
 .brand-text strong { letter-spacing: 0.08em; }
 .brand-text small { display: block; color: var(--muted); font-size: 11px; }
-.top-actions { display: flex; align-items: center; gap: 8px; }
+.topbar-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.top-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.mobile-only, .tablet-only { display: none; }
+.mobile-menu {
+  position: absolute;
+  top: calc(100% - 6px);
+  right: 10px;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 230px;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+.mobile-menu button {
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+.mobile-menu button:hover { background: var(--panel-2); }
+.mobile-menu .danger-text { color: var(--red); }
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(3, 5, 10, 0.62);
+  z-index: 35;
+}
 
 /* ---------- layout de tres columnas ---------- */
 .layout {
@@ -296,6 +337,7 @@ label > input, label > select { margin-top: 4px; }
 }
 .conv-titles strong { display: block; }
 .conv-titles small { color: var(--muted); }
+#conv-context { display: block; }
 
 .messages {
   flex: 1 1 auto;
@@ -365,6 +407,26 @@ label > input, label > select { margin-top: 4px; }
 .tag { background: var(--panel-2); border: 1px solid var(--border); border-radius: 999px; padding: 2px 7px; font-size: 10px; color: var(--muted); }
 .usage { font-size: 12px; color: var(--text); white-space: pre-wrap; }
 .usage-dim { color: var(--dim); font-size: 11px; }
+.detail-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.data-path { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-data { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 6px 0 10px; }
+.account-data strong { font-size: 13px; }
+.history-list { display: flex; flex-direction: column; gap: 6px; max-height: 52vh; overflow-y: auto; margin: 10px 0; }
+.history-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+.history-row.current { border-color: var(--accent); background: var(--accent-soft); }
+.history-main { flex: 1; min-width: 0; }
+.history-main strong { display: block; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-main small { color: var(--muted); font-size: 11px; }
+.history-actions { display: flex; gap: 4px; flex: 0 0 auto; }
+.help-text p { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
+.help-text p:last-child { margin-bottom: 0; }
 
 .files-card { display: flex; flex-direction: column; gap: 6px; flex: 1 0 auto; }
 .files-head { display: flex; align-items: center; justify-content: space-between; }
@@ -434,18 +496,112 @@ label > input, label > select { margin-top: 4px; }
 @media (max-width: 1100px) {
   .layout { grid-template-columns: 300px minmax(0, 1fr); }
   .layout.collapsed { grid-template-columns: 44px minmax(0, 1fr); }
-  #detail { display: none; }
   .layout.collapsed #sidebar { display: none; }
   .layout.collapsed .side-rail { display: flex; }
+  .tablet-only { display: inline-flex; }
+
+  /* El detalle pasa a ser un cajón lateral que se abre con «Detalles». */
+  #detail {
+    position: fixed;
+    top: 62px;
+    right: 0;
+    bottom: 0;
+    width: min(350px, 92vw);
+    z-index: 45;
+    display: flex;
+    padding: 12px;
+    overflow-y: auto;
+    border-left: 1px solid var(--border);
+    background: var(--bg);
+    box-shadow: var(--shadow);
+    transform: translateX(105%);
+    transition: transform 0.2s ease;
+  }
+  .layout.show-detail #detail { transform: translateX(0); }
 }
+
 @media (max-width: 760px) {
-  .topbar { padding: 0 10px; }
+  #app, .center-screen { height: 100vh; height: 100dvh; }
+  .topbar { height: 56px; padding: 0 8px; gap: 6px; }
+  .topbar-left { flex: 1 1 auto; min-width: 0; }
+  .brand { gap: 8px; }
   .brand-text small { display: none; }
+  .brand-text strong { font-size: 13px; letter-spacing: 0.04em; }
+  .logo { width: 30px; height: 30px; border-radius: 8px; }
+  .top-actions { display: none; }
+  .mobile-only { display: inline-flex; align-items: center; }
+  .tablet-only { display: none; }
+  .mobile-menu { top: 52px; right: 8px; left: 8px; min-width: 0; }
+
   .layout, .layout.collapsed { grid-template-columns: 1fr; }
-  #sidebar { position: fixed; inset: 62px auto 0 0; width: 86vw; max-width: 360px; z-index: 40; border-right: 1px solid var(--border); }
-  .layout.collapsed #sidebar { display: none; }
-  .layout.collapsed .side-rail { display: flex; }
-  #detail { display: none; }
-  input, textarea, select { font-size: 16px; }
+
+  /* Panel de modelos como cajón deslizante. */
+  #sidebar {
+    position: fixed;
+    inset: 56px auto 0 0;
+    width: 88vw;
+    max-width: 360px;
+    z-index: 42;
+    display: flex;
+    border-right: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    transform: translateX(-105%);
+    transition: transform 0.2s ease;
+  }
+  .layout:not(.collapsed) #sidebar { transform: translateX(0); }
+  .layout.collapsed #sidebar { display: flex; transform: translateX(-105%); }
+  .side-rail, .layout.collapsed .side-rail { display: none !important; }
+  #btn-collapse { font-size: 16px; padding: 8px 10px; }
+
+  #center { padding: 8px; gap: 8px; }
+  .conv-head { padding: 8px 10px; flex-wrap: wrap; gap: 6px; }
+  .conv-titles { flex: 1 1 100%; min-width: 0; }
+  .conv-titles strong { font-size: 14px; }
+  .messages { padding: 10px; border-radius: 8px; gap: 8px; }
+  .msg { max-width: 96%; padding: 8px 10px; }
+  .composer { padding: 8px; }
+  .composer-row { flex-wrap: wrap; gap: 8px; }
+  .composer-row .check { flex: 1 1 100%; }
+  .composer .status { order: 3; flex: 1 1 100%; text-align: left; }
+  .composer .status:empty { display: none; }
+  .composer .btn { min-height: 42px; flex: 1 1 auto; }
   .composer textarea { min-height: 44px; }
+  .gen-row > * { flex: 1 1 100%; }
+  .gen-row .select { width: 100%; }
+
+  #detail { top: 56px; width: min(360px, 94vw); }
+
+  input, textarea, select { font-size: 16px; }
+  .btn { min-height: 40px; }
+  .btn.small, .btn.mini, .icon-btn { min-height: 36px; }
+  .chip { max-width: 48vw; }
+
+  .modal-overlay { padding: 0; align-items: stretch; z-index: 75; }
+  .modal {
+    width: 100%;
+    height: 100%;
+    max-height: 100vh;
+    max-height: 100dvh;
+    border-radius: 0;
+    border: 0;
+    padding: 14px;
+  }
+  .modal-head { position: sticky; top: -14px; z-index: 2; background: var(--panel); padding: 4px 0 8px; }
+  .modal-row { gap: 8px; }
+  .modal-row > * { flex: 1 1 100%; }
+  .modal-row .btn { width: 100%; }
+  .modal-actions { flex-wrap: wrap; }
+  .modal-actions .btn { flex: 1 1 auto; }
+  .user-table { min-width: 560px; }
+  .history-list { max-height: 58vh; }
+  .history-row { flex-wrap: wrap; }
+  .history-actions { width: 100%; justify-content: flex-end; }
+  .account-data { flex-wrap: wrap; }
+  .account-data .btn { width: 100%; }
+  .data-path { max-width: 180px; }
+  .login-card { width: 100%; padding: 20px; }
+  .center-screen { padding: 14px; }
+  #toast-root { left: 10px; right: 10px; bottom: 10px; }
+  .toast { max-width: none; }
+  .file-list { max-height: 45vh; }
 }

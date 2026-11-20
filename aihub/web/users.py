@@ -66,17 +66,21 @@ def _hash(password: str, salt: bytes) -> str:
     return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, _ITERATIONS).hex()
 
 
-def public(user: dict) -> dict:
-    return {
+def public(user: dict, detailed: bool = False) -> dict:
+    data = {
         "id": user.get("id"),
         "name": user.get("name"),
         "role": user.get("role", "user"),
         "created": user.get("created"),
+        "desktop": bool(data_dir(user)),
     }
+    if detailed:
+        data["data_dir"] = str(data_dir(user) or "")
+    return data
 
 
-def list_users() -> list[dict]:
-    return [public(item) for item in _read_users()]
+def list_users(detailed: bool = False) -> list[dict]:
+    return [public(item, detailed=detailed) for item in _read_users()]
 
 
 def get_user(user_id: str) -> dict | None:
@@ -172,35 +176,95 @@ def user_dir(user_id: str) -> Path:
     return web_dir() / "users" / user_id
 
 
+def data_dir(user: dict | None) -> Path | None:
+    """Carpeta de datos compartida (por ejemplo, la de la app de escritorio)."""
+    raw = str((user or {}).get("data_dir") or "").strip()
+    return Path(raw).expanduser() if raw else None
+
+
+def effective_dir(user_id: str) -> Path:
+    """Carpeta real de datos del usuario: la vinculada o la suya de la web."""
+    user = get_user(user_id)
+    linked = data_dir(user)
+    return linked if linked is not None else user_dir(user_id)
+
+
+def _initial_config(base: Path) -> dict:
+    cfg = dict(config.DEFAULTS)
+    cfg.update(
+        {
+            "openrouter_api_key": "",
+            "workdir": "",
+            "projects_root": str(base / "proyectos"),
+            "output_root": str(base / "salida"),
+            "custom_providers": [],
+            "usage": {},
+            "last_provider": "openrouter",
+            "last_category": "code",
+            "last_models": {},
+        }
+    )
+    return cfg
+
+
 def ensure_user_env(user_id: str) -> Path:
-    """Crea la carpeta personal y una configuración inicial aislada."""
-    base = user_dir(user_id)
-    projects = base / "proyectos"
-    output = base / "salida"
-    projects.mkdir(parents=True, exist_ok=True)
-    output.mkdir(parents=True, exist_ok=True)
+    """Crea la carpeta personal y una configuración inicial aislada.
+
+    Si la cuenta está vinculada a otra carpeta (la del escritorio), se usa esa
+    carpeta tal cual: así comparte claves, proyectos e historial con la app de
+    escritorio. Nunca se pisan ficheros que ya existan.
+    """
+    user = get_user(user_id)
+    linked = data_dir(user)
+    if linked is not None:
+        base = linked
+        try:
+            base.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise ValueError(f"No se puede usar la carpeta {base}: {exc}") from exc
+    else:
+        base = user_dir(user_id)
+        (base / "proyectos").mkdir(parents=True, exist_ok=True)
+        (base / "salida").mkdir(parents=True, exist_ok=True)
+
     cfg_file = base / "config.json"
     if not cfg_file.exists():
-        cfg = dict(config.DEFAULTS)
-        cfg.update(
-            {
-                "openrouter_api_key": "",
-                "workdir": "",
-                "projects_root": str(projects),
-                "output_root": str(output),
-                "custom_providers": [],
-                "usage": {},
-                "last_provider": "openrouter",
-                "last_category": "code",
-                "last_models": {},
-            }
-        )
         config.set_app_dir(base)
         try:
-            config.save_config(cfg)
+            config.save_config(_initial_config(base))
         finally:
             config.set_app_dir(None)
     return base
+
+
+def set_data_dir(user_id: str, raw: str) -> str:
+    """Vincula la cuenta a una carpeta de datos o la devuelve a la suya.
+
+    ``raw`` vacío desvincula. El valor especial ``__desktop__`` enlaza con la
+    carpeta de la app de escritorio (``%APPDATA%\\AIHub``). Cualquier otra cosa
+    debe ser una ruta absoluta a una carpeta existente.
+    """
+    with _lock:
+        users = _read_users()
+        user = next((item for item in users if item.get("id") == user_id), None)
+        if user is None:
+            raise ValueError("Ese usuario no existe.")
+        value = str(raw or "").strip()
+        if value in ("", "__none__"):
+            user.pop("data_dir", None)
+        else:
+            if value == "__desktop__":
+                target = config.APP_DIR
+            else:
+                target = Path(value).expanduser()
+                if not target.is_absolute():
+                    raise ValueError("Escribe una ruta absoluta, por ejemplo C:\\Proyectos.")
+                target = target.resolve()
+                if not target.is_dir():
+                    raise ValueError("Esa carpeta no existe.")
+            user["data_dir"] = str(target)
+        _write_users(users)
+        return str(data_dir(user) or "")
 
 
 def activate(user_id: str) -> Path:

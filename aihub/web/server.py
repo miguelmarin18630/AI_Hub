@@ -81,6 +81,14 @@ def _safe_project(cfg: dict, name: str | None) -> Path:
     raw = str(name or "").strip()
     if raw in ("", "__root__"):
         return root
+    if raw == "__current__":
+        active = str(cfg.get("workdir") or "").strip()
+        if not active:
+            raise ValueError("No hay una carpeta abierta.")
+        target = Path(active).expanduser().resolve()
+        if not target.is_dir():
+            raise ValueError("La carpeta abierta ya no existe.")
+        return target
     target = (root / raw).resolve()
     if not target.is_relative_to(root):
         raise ValueError("Proyecto no válido.")
@@ -97,10 +105,25 @@ def _safe_in(base: Path, relative: str | None) -> Path:
     return target
 
 
+def _active_path(cfg: dict) -> Path | None:
+    raw = str(cfg.get("workdir") or "").strip()
+    if not raw:
+        return None
+    try:
+        path = Path(raw).expanduser().resolve()
+    except (OSError, ValueError):
+        return None
+    return path if path.is_dir() else None
+
+
 def _projects_payload(cfg: dict) -> list[dict]:
-    active = str(cfg.get("workdir") or "")
+    active = _active_path(cfg)
+    root = _project_root(cfg)
     out: list[dict] = []
+    seen: set[Path] = set()
     for item in projects.list_projects(cfg):
+        path = Path(item["path"]).resolve()
+        seen.add(path)
         is_root = bool(item.get("root"))
         out.append(
             {
@@ -110,10 +133,147 @@ def _projects_payload(cfg: dict) -> list[dict]:
                 "count": item["count"],
                 "mtime": item["mtime"],
                 "root": is_root,
-                "active": (str(item["path"]) == active) if not is_root else active == str(item["path"]),
+                "active": active is not None and path == active,
             }
         )
+    # La carpeta abierta puede estar fuera de projects_root (por ejemplo, si se
+    # abrió desde el escritorio). Se añade para poder verla y navegarla.
+    if active is not None and active not in seen:
+        extra = projects.describe(active)
+        out.insert(
+            0,
+            {
+                "id": "__current__",
+                "name": active.name or str(active),
+                "kinds": extra["kinds"],
+                "count": extra["count"],
+                "mtime": extra["mtime"],
+                "root": active == root,
+                "outside": True,
+                "active": True,
+            },
+        )
     return out
+
+
+def _media_bases(cfg: dict, user_id: str) -> list[Path]:
+    bases: list[Path] = []
+    try:
+        bases.append(users.effective_dir(user_id))
+    except ValueError:
+        pass
+    output = str(cfg.get("output_root") or "").strip()
+    if output:
+        bases.append(Path(output).expanduser())
+    unique: list[Path] = []
+    for base in bases:
+        try:
+            resolved = base.resolve()
+        except OSError:
+            continue
+        if resolved not in unique:
+            unique.append(resolved)
+    return unique
+
+
+def _media_relative(cfg: dict, user_id: str, path: Path) -> str:
+    target = path.resolve()
+    for base in _media_bases(cfg, user_id):
+        try:
+            return target.relative_to(base).as_posix()
+        except ValueError:
+            continue
+    raise ValueError("El archivo generado queda fuera de las carpetas permitidas.")
+
+
+_conversations_lock = threading.RLock()
+
+
+def _conversation_path() -> Path:
+    return config.app_dir() / "conversations.json"
+
+
+def _text_of(value: object) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return "\n".join(
+            str(part.get("text") or "")
+            for part in value
+            if isinstance(part, dict) and part.get("text")
+        )
+    return ""
+
+
+def _clean_messages(raw: object) -> list[dict]:
+    if not isinstance(raw, list):
+        return []
+    clean: list[dict] = []
+    for item in raw[-400:]:
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role") or "")
+        if role not in ("user", "assistant", "tool", "system"):
+            continue
+        content = item.get("content")
+        if isinstance(content, list):
+            content = _text_of(content)
+        if not isinstance(content, str):
+            continue
+        content = content[:200_000]
+        if not content.strip() and role not in ("tool",):
+            continue
+        clean.append({"role": role, "content": content})
+    return clean
+
+
+def _read_conversations() -> dict:
+    try:
+        data = json.loads(_conversation_path().read_text(encoding="utf-8"))
+    except Exception:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    items = [dict(item) for item in (data.get("items") or []) if isinstance(item, dict)]
+    current = data.get("current")
+    if not isinstance(current, dict) or not current.get("messages"):
+        current = None
+    return {"items": items[:30], "current": current}
+
+
+def _write_conversations(data: dict) -> None:
+    path = _conversation_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _conversation_record(payload: dict) -> dict:
+    messages = _clean_messages(payload.get("messages"))
+    if not messages:
+        raise ValueError("La conversación está vacía.")
+    first_user = next((m["content"] for m in messages if m["role"] == "user"), "")
+    title = " ".join(first_user.split())
+    if len(title) > 60:
+        title = title[:57] + "…"
+    record = {
+        "id": str(payload.get("id") or "") or str(int(time.time() * 1000)),
+        "title": title or "Chat sin título",
+        "model": str(payload.get("model") or ""),
+        "messages": messages,
+        "updated": time.time(),
+    }
+    return record
+
+
+def _history_meta(record: dict) -> dict:
+    return {
+        "id": record.get("id"),
+        "title": record.get("title") or "Chat sin título",
+        "model": record.get("model") or "",
+        "updated": record.get("updated") or 0,
+    }
 
 
 def _settings_payload(cfg: dict) -> dict:
@@ -309,6 +469,35 @@ class Handler(BaseHTTPRequestHandler):
                     }
                 )
                 return
+            if path == "/api/history":
+                if not self._require_user():
+                    return
+                wanted = (query.get("id") or [""])[0]
+                with _conversations_lock:
+                    data = _read_conversations()
+                if wanted:
+                    record = next(
+                        (item for item in data["items"] if item.get("id") == wanted), None
+                    )
+                    if record is None and data["current"] and data["current"].get("id") == wanted:
+                        record = data["current"]
+                    if record is None:
+                        self._error(404, "Esa conversación no existe.")
+                        return
+                    self._send_json({"conversation": record})
+                    return
+                self._send_json(
+                    {
+                        "items": [_history_meta(item) for item in data["items"]],
+                        "current": data["current"],
+                    }
+                )
+                return
+            if path == "/api/help":
+                if not self._require_user():
+                    return
+                self._send_json({"text": chat.explain_text()})
+                return
             if path == "/api/projects":
                 if not self._require_user():
                     return
@@ -371,16 +560,35 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/admin/users":
                 if not self._require_admin():
                     return
-                self._send_json({"users": users.list_users()})
+                self._send_json({"users": users.list_users(detailed=True)})
                 return
             if path == "/api/media":
-                if not self._require_user():
+                user = self._require_user()
+                if not user:
                     return
-                uid = users.read_session(self._cookie(users.cookie_name()))
+                cfg = config.load_config()
                 rel = (query.get("path") or [""])[0]
-                base = users.user_dir(uid or "")
-                target = _safe_in(base, rel)
-                if not target.is_file():
+                bases = _media_bases(cfg, user["id"])
+                target: Path | None = None
+                candidate = Path(rel)
+                if candidate.is_absolute():
+                    for base in bases:
+                        try:
+                            candidate.resolve().relative_to(base)
+                        except ValueError:
+                            continue
+                        target = candidate.resolve()
+                        break
+                else:
+                    for base in bases:
+                        try:
+                            found = _safe_in(base, rel)
+                        except ValueError:
+                            continue
+                        if found.is_file():
+                            target = found
+                            break
+                if target is None or not target.is_file():
                     self._error(404, "Archivo no encontrado.")
                     return
                 self._serve_file(target)
@@ -413,6 +621,18 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/chat":
                 self._chat()
                 return
+            if path == "/api/history/save":
+                self._save_conversation()
+                return
+            if path == "/api/history/open":
+                self._open_conversation()
+                return
+            if path == "/api/history/delete":
+                self._delete_conversation()
+                return
+            if path == "/api/history/new":
+                self._new_conversation()
+                return
             if path == "/api/project/select":
                 self._select_project()
                 return
@@ -442,6 +662,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path == "/api/admin/users/delete":
                 self._admin_delete()
+                return
+            if path == "/api/admin/users/data":
+                self._admin_user_data()
                 return
             if path == "/api/image":
                 self._image()
@@ -713,6 +936,11 @@ class Handler(BaseHTTPRequestHandler):
                     "elapsed": round(time.time() - started, 1),
                     "usage": usage_total,
                     "usage_text": usage.describe(stats),
+                    "context": {
+                        "turns": _context.turns,
+                        "tokens": _context.tokens,
+                        "limit": _context.limit,
+                    },
                 }
             )
         except api.ApiError as exc:
@@ -876,19 +1104,99 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- proyectos ----------------------------------------------------------
 
-    def _select_project(self) -> None:
+    # -- historial ----------------------------------------------------------
+
+    def _save_conversation(self) -> None:
         if not self._require_user():
             return
         data = self._body()
-        name = str(data.get("name") or "")
+        with _conversations_lock:
+            state = _read_conversations()
+            record = _conversation_record(data)
+            items = [item for item in state["items"] if item.get("id") != record["id"]]
+            items.insert(0, record)
+            _write_conversations({"items": items[:30], "current": record})
+        self._send_json({"ok": True, "conversation": _history_meta(record)})
+
+    def _open_conversation(self) -> None:
+        if not self._require_user():
+            return
+        data = self._body()
+        wanted = str(data.get("id") or "")
+        with _conversations_lock:
+            state = _read_conversations()
+            record = next((item for item in state["items"] if item.get("id") == wanted), None)
+            if record is None and state["current"] and state["current"].get("id") == wanted:
+                record = state["current"]
+            if record is None:
+                raise ValueError("Esa conversación no existe.")
+            state["current"] = record
+            _write_conversations(state)
+        self._send_json({"ok": True, "conversation": record})
+
+    def _delete_conversation(self) -> None:
+        if not self._require_user():
+            return
+        data = self._body()
+        wanted = str(data.get("id") or "")
+        with _conversations_lock:
+            state = _read_conversations()
+            items = [item for item in state["items"] if item.get("id") != wanted]
+            current = state["current"]
+            if current and current.get("id") == wanted:
+                current = None
+            _write_conversations({"items": items, "current": current})
+        self._send_json({"ok": True})
+
+    def _new_conversation(self) -> None:
+        if not self._require_user():
+            return
+        with _conversations_lock:
+            state = _read_conversations()
+            _write_conversations({"items": state["items"], "current": None})
+        self._send_json({"ok": True})
+
+    # -- proyectos ----------------------------------------------------------
+
+    def _select_project(self) -> None:
+        user = self._require_user()
+        if not user:
+            return
+        data = self._body()
+        path = str(data.get("path") or "").strip()
         cfg = config.load_config()
+        if path:
+            if user.get("role") != "admin" and not users.data_dir(user):
+                self._error(403, "Solo el administrador puede abrir carpetas fuera de sus proyectos.")
+                return
+            target = Path(path).expanduser().resolve()
+            if not target.is_dir():
+                raise ValueError("Esa carpeta no existe.")
+            config.update_config(workdir=str(target))
+            self._send_json(
+                {
+                    "ok": True,
+                    "workdir": str(target),
+                    "name": target.name,
+                    "projects": _projects_payload(config.load_config()),
+                }
+            )
+            return
+        name = str(data.get("name") or "")
         if not name:
             config.update_config(workdir="")
-            self._send_json({"ok": True, "workdir": ""})
+            self._send_json({"ok": True, "workdir": "", "projects": _projects_payload(config.load_config())})
             return
         target = _safe_project(cfg, name)
         config.update_config(workdir=str(target))
-        self._send_json({"ok": True, "workdir": str(target), "name": target.name})
+        self._send_json(
+            {
+                "ok": True,
+                "workdir": str(target),
+                "name": target.name,
+                "projects": _projects_payload(config.load_config()),
+            }
+        )
 
     def _create_project(self) -> None:
         if not self._require_user():
@@ -1051,10 +1359,20 @@ class Handler(BaseHTTPRequestHandler):
         users.delete_user(str(data.get("id") or ""), user["id"])
         self._send_json({"ok": True})
 
+    def _admin_user_data(self) -> None:
+        if not self._require_admin():
+            return
+        data = self._body()
+        target = users.set_data_dir(
+            str(data.get("id") or ""), str(data.get("data_dir") or "")
+        )
+        self._send_json({"ok": True, "data_dir": target})
+
     # -- imagen y vídeo -----------------------------------------------------
 
     def _image(self) -> None:
-        if not self._require_user():
+        user = self._require_user()
+        if not user:
             return
         data = self._body()
         cfg = config.load_config()
@@ -1081,18 +1399,19 @@ class Handler(BaseHTTPRequestHandler):
             usage.record(provider, uid, images=1, cost=cost or 0.0)
         except Exception:
             pass
-        rel = path.resolve().relative_to(users.user_dir(self._cookie_user_id()).resolve())
+        rel = _media_relative(cfg, user["id"], path)
         self._send_json(
             {
                 "ok": True,
-                "url": f"/api/media?path={urllib.parse.quote(rel.as_posix())}",
+                "url": f"/api/media?path={urllib.parse.quote(rel)}",
                 "cost": cost,
                 "name": path.name,
             }
         )
 
     def _video(self) -> None:
-        if not self._require_user():
+        user = self._require_user()
+        if not user:
             return
         data = self._body()
         cfg = config.load_config()
@@ -1121,11 +1440,11 @@ class Handler(BaseHTTPRequestHandler):
             usage.record("openrouter", uid, videos=1)
         except Exception:
             pass
-        rel = path.resolve().relative_to(users.user_dir(self._cookie_user_id()).resolve())
+        rel = _media_relative(cfg, user["id"], path)
         self._send_json(
             {
                 "ok": True,
-                "url": f"/api/media?path={urllib.parse.quote(rel.as_posix())}",
+                "url": f"/api/media?path={urllib.parse.quote(rel)}",
                 "name": path.name,
             }
         )

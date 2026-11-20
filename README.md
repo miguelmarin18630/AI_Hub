@@ -133,6 +133,18 @@ con su cuenta, sus claves, sus modelos y sus proyectos:
 - Para publicarla en tu dominio (marinweb.org) con Cloudflare Tunnel, sigue
   **`WEB.md`**.
 
+La web es la misma app que el escritorio: lo único que cambia es el inicio de
+sesión. En **Ajustes → Mi cuenta** puedes pulsar **Vincular con el escritorio**
+para que tu cuenta use `%APPDATA%\AIHub` y veas en el navegador el mismo
+historial, favoritos, clave de OpenRouter y carpetas que en el escritorio. Las
+demás cuentas familiares siguen separadas. No uses la misma conversación en los
+dos sitios a la vez: ambos guardan en `conversations.json` y prevalece el último
+guardado.
+
+En el móvil la barra superior se reduce a **Modelos** y al menú **⋯** (Historial,
+Detalles, Ayuda, Ajustes y cuenta); los paneles se abren como cajones laterales y
+los modales ocupan la pantalla.
+
 La versión web conserva las mismas funciones: catálogo de modelos, chat con
 herramientas sobre tus archivos, generación de imágenes y vídeos, consumo por
 modelo y ajustes. OpenCode y Claude Code usan los CLI instalados en el servidor.
@@ -168,8 +180,10 @@ el panel derecho («ARCHIVOS DE LA CARPETA»).
 ### Añadir proveedores propios
 
 - Botón **«＋ Añadir proveedor»** (bajo las tarjetas, o en el diálogo de acceso). Eliges un servicio de la
-  lista (OpenAI, Google Gemini, Groq, DeepSeek, Mistral, Together AI) o **Personalizado** para cualquier
-  servidor compatible con OpenAI (p. ej. LM Studio con `http://localhost:1234/v1`).
+  lista (OpenAI, Google Gemini, Groq, DeepSeek, Mistral, Together AI, Perplexity, Fireworks AI, xAI,
+  Cerebras, SambaNova, Hugging Face, Novita AI, SiliconFlow, Hyperbolic, Cohere, Alibaba/Qwen, Moonshot,
+  MiniMax) o **Personalizado** para cualquier servidor compatible con OpenAI (p. ej. LM Studio con
+  `http://localhost:1234/v1`).
 - Pide la clave de API, comprueba la conexión y lee los modelos. Los de chat aparecen en **Programación**;
   los de imagen, en **Imagen y vídeo**. La clave se guarda solo en tu equipo.
 - Desde el mismo diálogo puedes **quitar** un proveedor (borra su clave guardada).
@@ -237,8 +251,9 @@ que pulses «ver».
 - Configuración: `%APPDATA%\AIHub\config.json`
 - Catálogos en caché: `%APPDATA%\AIHub\cache.json` (se regeneran con el botón **Actualizar** o `F5`)
 - Historial de conversaciones: `%APPDATA%\AIHub\conversations.json` (hasta 30 conversaciones; la
-  conversación actual se recupera al abrir la app). Con el login reactivado, cada persona usa
-  `%APPDATA%\AIHub\web\users\<usuario>\` y su propio `conversations.json`.
+  conversación actual se recupera al abrir la app). En la web, cada cuenta usa
+  `%APPDATA%\AIHub\web\users\<usuario>\` y su propio `conversations.json`, salvo que se vincule
+  al escritorio: entonces comparte el historial de `%APPDATA%\AIHub`.
 - La app abre al instante con la caché y actualiza en segundo plano si «Actualizar el catálogo al
   abrir la app» está marcado.
 

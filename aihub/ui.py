@@ -386,11 +386,22 @@ class MainWindow(tk.Tk):
         brand = tk.Frame(header, bg=PANEL)
         brand.grid(row=0, column=0, sticky="w", padx=(22, 8), pady=(10, 8))
 
-        logo = tk.Canvas(brand, width=40, height=40, bg=PANEL, highlightthickness=0)
-        logo.pack(side="left", padx=(0, 12))
-        logo.create_rectangle(0, 0, 40, 40, fill=ACCENT, outline="")
-        logo.create_rectangle(17, 7, 23, 33, fill="#ffffff", outline="")
-        logo.create_rectangle(7, 17, 33, 23, fill="#ffffff", outline="")
+        logo_holder = tk.Frame(brand, bg="#ffffff", width=40, height=40)
+        logo_holder.pack(side="left", padx=(0, 12))
+        logo_holder.pack_propagate(False)
+        try:
+            self._logo_img = tk.PhotoImage(
+                file=str(Path(__file__).resolve().parent.parent / "assets" / "marin-mark-40.png")
+            )
+            tk.Label(
+                logo_holder, image=self._logo_img, bg="#ffffff", bd=0, highlightthickness=0
+            ).pack()
+        except Exception:
+            # Respaldo: marca dibujada si la imagen no está disponible.
+            fallback = tk.Canvas(logo_holder, width=40, height=40, bg=ACCENT, highlightthickness=0)
+            fallback.pack()
+            fallback.create_rectangle(17, 7, 23, 33, fill="#ffffff", outline="")
+            fallback.create_rectangle(7, 17, 33, 23, fill="#ffffff", outline="")
 
         text = tk.Frame(brand, bg=PANEL)
         text.pack(side="left")
@@ -670,9 +681,9 @@ class MainWindow(tk.Tk):
             selectmode="browse",
         )
         self.tree.heading("name", text="MODELO", anchor="w")
-        self.tree.heading("price", text="PRECIO (USD / 1M)", anchor="e")
-        self.tree.column("name", width=320, minwidth=200, stretch=False)
-        self.tree.column("price", width=170, minwidth=120, stretch=False, anchor="e")
+        self.tree.heading("price", text="PRECIO", anchor="e")
+        self.tree.column("name", width=210, minwidth=100, stretch=True)
+        self.tree.column("price", width=120, minwidth=90, stretch=False, anchor="e")
         self.tree.grid(row=0, column=0, sticky="nsew")
         self.tree.tag_configure("free", foreground=GREEN)
         self.tree.tag_configure("paid", foreground=TEXT)
@@ -684,11 +695,6 @@ class MainWindow(tk.Tk):
         )
         scroll.grid(row=0, column=1, sticky="ns")
         self.tree.configure(yscrollcommand=scroll.set)
-        hscroll = ttk.Scrollbar(
-            table_frame, orient="horizontal", command=self.tree.xview, style="AIH.Horizontal.TScrollbar"
-        )
-        hscroll.grid(row=1, column=0, sticky="ew")
-        self.tree.configure(xscrollcommand=hscroll.set)
         self.tree.bind("<<TreeviewSelect>>", self._on_tree_select)
         self.tree.bind("<Double-1>", lambda _e: self._primary_action())
         self.tree.bind("<Return>", lambda _e: self._primary_action())
@@ -850,6 +856,26 @@ class MainWindow(tk.Tk):
             btns, "Cómo funciona", self._open_how_it_works, kind="ghost", height=32, font_size=9
         )
         self.btn_howto.pack(side="right", padx=(0, 6))
+
+        # Evita que los textos largos de la cabecera se monten sobre los botones.
+        def _resize_conv_head(_event=None) -> None:
+            try:
+                available = head.winfo_width() - btns.winfo_width() - 40
+            except tk.TclError:
+                return
+            if available < 120:
+                return
+            for widget in (self.conv_title, self.conv_sub, self.conv_context):
+                try:
+                    widget.configure(wraplength=available)
+                except tk.TclError:
+                    pass
+            try:
+                self.context_bar.configure(width=available)
+            except tk.TclError:
+                pass
+        head.bind("<Configure>", _resize_conv_head)
+        self.after_idle(_resize_conv_head)
 
         # Conversación (la salida)
         conv = tk.Frame(center, bg=INPUT, highlightbackground=BORDER, highlightthickness=1)
@@ -1391,6 +1417,20 @@ class MainWindow(tk.Tk):
                 self.selected = model
                 self._update_detail()
 
+    def _fit_model_columns(self) -> None:
+        """Reparte el ancho de la tabla para que nombre y precio quepan sin scroll horizontal."""
+        width = self.tree.winfo_width()
+        if width <= 1:  # aún sin dibujar: usa el ancho del panel menos bordes y scrollbar
+            width = self.sidebar_width - 40
+        body_font = tkfont.Font(font=(FONT, 10))
+        head_font = tkfont.Font(font=(FONT, 9, "bold"))
+        texts = [body_font.measure(model.price_text()) for model in self.visible]
+        heading = self.tree.heading("price", "text") or ""
+        needed = max([head_font.measure(str(heading)), *texts], default=0)
+        price_w = min(max(90, needed + 24), int(width * 0.5))
+        self.tree.column("price", width=price_w, minwidth=90, stretch=False)
+        self.tree.column("name", width=max(100, width - price_w - 2), minwidth=100, stretch=True)
+
     def _render_list(self) -> None:
         previous = self.selected
         models = self._models_for_view()
@@ -1399,8 +1439,9 @@ class MainWindow(tk.Tk):
         for item in self.tree.get_children():
             self.tree.delete(item)
 
-        heading = "PRECIO (USD / 1M)" if self.category == "code" else "PRECIO"
+        heading = "PRECIO / 1M" if self.category == "code" else "PRECIO"
         self.tree.heading("price", text=heading, anchor="e")
+        self._fit_model_columns()
         self.legend_label.configure(
             text={
                 "price": "Gratis primero, por relevancia · doble clic para usar",

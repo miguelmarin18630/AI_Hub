@@ -220,11 +220,24 @@ Reglas:
 | Proveedor | Gratis | Notas |
 | --- | --- | --- |
 | OpenAI | — | API de pago (requiere saldo) |
-| Google Gemini | `flash` | cuota diaria gratuita |
+| Google Gemini | `flash`, `preview` | cuota diaria gratuita |
 | DeepSeek | `-code`, `-coder`, `-distill` | nivel gratuito de código |
 | Groq | — | sin nivel gratuito de chat |
 | Mistral | `-instruct`, `-small`, `-v0.1` | prueba/ligero |
 | Together AI | — | de pago |
+| Perplexity | — | de pago (búsqueda aumentada) |
+| Fireworks AI | `free`, `:free` | según modelo |
+| xAI (Grok) | — | de pago |
+| Cerebras | `free`, `:free` | cuota gratuita según modelo |
+| SambaNova | `free`, `:free` | cuota gratuita según modelo |
+| Hugging Face | `free`, `:free` | inferencia gratuita limitada |
+| Novita AI | `free`, `:free` | según modelo |
+| SiliconFlow | `free`, `:free` | modelos gratuitos marcados |
+| Hyperbolic | `free`, `:free` | según modelo |
+| Cohere | `trial`, `free` | nivel de prueba |
+| Alibaba (Qwen) | `free`, `:free` | según modelo |
+| Moonshot (Kimi) | `free`, `:free` | según modelo |
+| MiniMax | `free`, `:free` | según modelo |
 
 Recuerda: si un modelo de pago da error 429, `api._error_message()` distingue
 «sin saldo/créditos» de «límite de peticiones».

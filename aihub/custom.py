@@ -24,6 +24,32 @@ PRESETS = [
      "help": "Clave en console.mistral.ai/api-keys"},
     {"id": "together", "name": "Together AI", "base": "https://api.together.xyz/v1", "glyph": "◐", "color": "#0f6fff",
      "help": "Clave en api.together.ai/settings/api-keys"},
+    {"id": "perplexity", "name": "Perplexity", "base": "https://api.perplexity.ai", "glyph": "P",
+     "color": "#20b2aa", "help": "Clave en perplexity.ai/settings/api"},
+    {"id": "fireworks", "name": "Fireworks AI", "base": "https://api.fireworks.ai/inference/v1", "glyph": "Fw",
+     "color": "#ff6b35", "help": "Clave en fireworks.ai/account/api-keys"},
+    {"id": "xai", "name": "xAI (Grok)", "base": "https://api.x.ai/v1", "glyph": "X", "color": "#1d1d1f",
+     "help": "Clave en console.x.ai"},
+    {"id": "cerebras", "name": "Cerebras", "base": "https://api.cerebras.ai/v1", "glyph": "Cb", "color": "#6b46c1",
+     "help": "Clave en cloud.cerebras.ai"},
+    {"id": "sambanova", "name": "SambaNova", "base": "https://api.sambanova.ai/v1", "glyph": "Sn", "color": "#0ea5e9",
+     "help": "Clave en cloud.sambanova.ai"},
+    {"id": "huggingface", "name": "Hugging Face", "base": "https://router.huggingface.co/v1", "glyph": "HF",
+     "color": "#ffcc00", "help": "Token en huggingface.co/settings/tokens"},
+    {"id": "novita", "name": "Novita AI", "base": "https://api.novita.ai/v3/openai", "glyph": "Nv", "color": "#7c3aed",
+     "help": "Clave en novita.ai/settings"},
+    {"id": "siliconflow", "name": "SiliconFlow", "base": "https://api.siliconflow.cn/v1", "glyph": "SF",
+     "color": "#06b6d4", "help": "Clave en siliconflow.cn/account/ak"},
+    {"id": "hyperbolic", "name": "Hyperbolic", "base": "https://api.hyperbolic.xyz/v1", "glyph": "Hp",
+     "color": "#ec4899", "help": "Clave en app.hyperbolic.xyz/settings"},
+    {"id": "cohere", "name": "Cohere", "base": "https://api.cohere.com/compatibility/v1", "glyph": "Co",
+     "color": "#39d353", "help": "Clave en dashboard.cohere.com/api-keys"},
+    {"id": "dashscope", "name": "Alibaba (Qwen)", "base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+     "glyph": "Q", "color": "#ff6a00", "help": "Clave en dashscope.console.aliyun.com"},
+    {"id": "moonshot", "name": "Moonshot (Kimi)", "base": "https://api.moonshot.cn/v1", "glyph": "K",
+     "color": "#1e3a8a", "help": "Clave en platform.moonshot.cn"},
+    {"id": "minimax", "name": "MiniMax", "base": "https://api.minimax.chat/v1", "glyph": "MM", "color": "#000000",
+     "help": "Clave en platform.minimaxi.com"},
     {"id": "custom", "name": "Personalizado", "base": "", "glyph": "◆", "color": "#9aa4b2",
      "help": "Cualquier servidor compatible con OpenAI (p. ej. LM Studio: http://localhost:1234/v1)"},
 ]
@@ -125,7 +151,7 @@ def _is_free_model(model_id: str) -> bool:
     gratuidad falsa).
     """
     text = str(model_id or "").lower()
-    if "free" in text or ":free" in text:
+    if "free" in text or ":free" in text or "preview" in text or "trial" in text:
         return True
     # DeepSeek: niveles gratuitos de código/destilación.
     if "distill" in text or "coder" in text or text.endswith("-code") or "-code-" in text:
