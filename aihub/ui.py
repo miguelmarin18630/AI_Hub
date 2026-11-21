@@ -4395,26 +4395,55 @@ class MainWindow(tk.Tk):
         def fill_listing() -> None:
             for child in listing.winfo_children():
                 child.destroy()
-            records = custom.records(self.cfg)
-            if not records:
+            # Se listan TODOS los proveedores registrados (integrados + añadidos por el
+            # usuario), para que el recuento coincida con los que aparecen en la app.
+            all_pids = [item["id"] for item in catalog.PROVIDERS]
+            if not all_pids:
                 tk.Label(listing, text="Todavía no has añadido ninguno.", bg=BG, fg=DIM, font=(FONT, 9)).pack(anchor="w")
                 return
-            for index, record in enumerate(records):
+            for index, pid in enumerate(all_pids):
+                info = catalog.PROVIDER_BY_ID.get(pid, {})
+                name = info.get("name", pid)
+                is_custom = bool(info.get("custom"))
+                removable = is_custom or pid == "openrouter"
                 row = tk.Frame(listing, bg=PANEL, highlightbackground=BORDER, highlightthickness=1, padx=12, pady=8)
                 row.grid(row=index, column=0, sticky="ew", pady=(0, 6))
                 row.columnconfigure(0, weight=1)
-                tk.Label(row, text=record["name"], bg=PANEL, fg=TEXT, font=(FONT, 10, "bold"), anchor="w").grid(
+                tk.Label(row, text=name, bg=PANEL, fg=TEXT, font=(FONT, 10, "bold"), anchor="w").grid(
                     row=0, column=0, sticky="w"
                 )
                 tk.Label(
-                    row, text=self._provider_status_text(record["id"]), bg=PANEL, fg=MUTED, font=(FONT, 8),
+                    row, text=self._provider_status_text(pid), bg=PANEL, fg=MUTED, font=(FONT, 8),
                     anchor="w", justify="left", wraplength=460,
                 ).grid(row=1, column=0, sticky="w")
-                _button(
-                    row, "Quitar", lambda pid=record["id"]: remove(pid), kind="ghost", height=28, font_size=9
-                ).grid(row=0, column=1, rowspan=2, sticky="e")
+                if removable:
+                    _button(
+                        row, "Quitar", lambda p=pid: remove(p), kind="ghost", height=28, font_size=9
+                    ).grid(row=0, column=1, rowspan=2, sticky="e")
 
         def remove(pid: str) -> None:
+            if pid == "openrouter":
+                if not messagebox.askyesno(
+                    "Quitar proveedor",
+                    "¿Quitar la clave de OpenRouter? Se borrará la clave guardada en este equipo.",
+                    parent=win,
+                ):
+                    return
+                self.cfg["openrouter_api_key"] = ""
+                config.update_config(openrouter_api_key="")
+                self.catalogs.pop("openrouter", None)
+                try:
+                    catalog.store_models("openrouter", [])
+                except Exception:
+                    pass
+                if self.provider == "openrouter":
+                    supported = self._providers_for(self.category) or ["opencode"]
+                    self._select_provider(supported[0])
+                self._render_all()
+                self._update_statuses_ui()
+                self._set_status("OpenRouter quitado")
+                fill_listing()
+                return
             self._remove_custom(pid, parent=win)
             fill_listing()
 
