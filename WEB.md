@@ -123,12 +123,25 @@ Ya está creado el túnel `aihub` apuntando a `aihub.marinweb.org`. Para abrirlo
 Orden recomendado: primero **`Iniciar_Web.vbs`** (el servidor) y después el
 túnel. El túnel no necesita volver a crearse ni volver a configurarse.
 
-## 4. Arranque automático (opcional)
+## 4. Arranque automático
 
-Para que el servidor arranque con Windows, crea una tarea en el Programador de
-tareas que ejecute `python -m aihub.web run` en `C:\Proyectos\AI_HUB` al
-iniciar sesión. El túnel de Cloudflare puede arrancarse igual con
-`cloudflared tunnel run aihub`.
+Ya está configurado: la tarea programada **`AI Hub`** arranca al iniciar sesión
+en Windows (con 15 s de margen) y lanza, sin ventanas y sin duplicar procesos:
+
+1. El servidor web (`python -m aihub.web run`).
+2. El túnel de Cloudflare (`cloudflared tunnel run aihub`).
+
+Ambos usan el lanzador **`Arranque_AI_Hub.vbs`**, que también puedes ejecutar a
+mano con doble clic. Comprueba antes si ya están en marcha, así que no crea
+instancias repetidas.
+
+- Ver el estado: `schtasks /query /tn "AI Hub" /v /fo LIST`
+- Desactivar: `schtasks /change /tn "AI Hub" /disable`
+- Volver a activar: `schtasks /change /tn "AI Hub" /enable`
+- Quitarlo del todo: `schtasks /delete /tn "AI Hub" /f`
+
+Para parar el túnel o el servidor: Administrador de tareas → buscar
+`cloudflared` o `python` y finalizar la tarea.
 
 ## 5. Seguridad
 

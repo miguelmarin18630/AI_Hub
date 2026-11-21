@@ -9,6 +9,7 @@ import base64
 import json
 import re
 import shutil
+import socket
 import time
 import urllib.error
 import urllib.parse
@@ -300,9 +301,15 @@ def stream_ollama_chat(
     parts: list[str] = []
     stats: dict = {}
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            for raw in response:
+        with urllib.request.urlopen(req, timeout=min(15, timeout)) as response:
+            while True:
                 if cancel():
+                    break
+                try:
+                    raw = response.readline()
+                except socket.timeout:
+                    continue
+                if not raw:
                     break
                 line = raw.decode("utf-8", "replace").strip()
                 if not line:
@@ -464,9 +471,15 @@ def stream_openrouter_chat(
     )
     usage: dict = {}
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            for raw in response:
+        with urllib.request.urlopen(req, timeout=min(15, timeout)) as response:
+            while True:
                 if cancel():
+                    break
+                try:
+                    raw = response.readline()
+                except socket.timeout:
+                    continue
+                if not raw:
                     break
                 line = raw.decode("utf-8", "replace").strip()
                 if not line or line.startswith(":"):

@@ -281,7 +281,7 @@ function bindEvents() {
 
   $("model-list").addEventListener("click", (event) => {
     const row = event.target.closest(".model-row");
-    if (!row) return;
+    if (!row || row.classList.contains("disabled")) return;
     const model = state.models.find((item) => item.uid === row.dataset.uid && item.provider === row.dataset.provider);
     if (model) selectModel(model);
   });
@@ -513,6 +513,31 @@ function selectProvider(id) {
   $("provider-menu").hidden = true;
 }
 
+function historyTokens() {
+  let total = 0;
+  for (const item of state.messages || []) {
+    if (!item || typeof item !== "object") continue;
+    const content = textOf(item.content);
+    total += Math.ceil((content || "").length / 4);
+    if (Array.isArray(item.images)) total += item.images.length * 800;
+  }
+  return total;
+}
+
+function modelContextLimit(model) {
+  const c = Number(model && model.context);
+  if (c > 0) return c;
+  return (model && model.provider === "ollama") ? 8192 : 32768;
+}
+
+function isModelContextDisabled(model) {
+  if (!model || state.category !== "code") return false;
+  if (state.filter !== "free") return false;
+  if (!model.free) return false;
+  const required = Math.max(historyTokens() + 1024, 2048);
+  return modelContextLimit(model) < required;
+}
+
 function renderModels() {
   const root = $("model-list");
   root.innerHTML = "";
@@ -547,7 +572,9 @@ function renderModels() {
   const frag = document.createDocumentFragment();
   for (const model of items) {
     const row = document.createElement("div");
-    row.className = "model-row" + (state.selected && state.selected.uid === model.uid && state.selected.provider === model.provider ? " selected" : "");
+    const disabled = isModelContextDisabled(model);
+    row.className = "model-row" + (state.selected && state.selected.uid === model.uid && state.selected.provider === model.provider ? " selected" : "") + (disabled ? " disabled" : "");
+    if (disabled) row.title = "Contexto insuficiente para la conversación actual";
     row.dataset.uid = model.uid;
     row.dataset.provider = model.provider;
     const priceClass = model.free ? "free" : (model.effective_price == null ? "unknown" : "");
@@ -753,6 +780,7 @@ function applyConversation(record) {
     .filter((item) => item && ["user", "assistant", "tool"].includes(item.role))
     .map((item) => ({ role: item.role, content: textOf(item.content) }));
   renderMessages();
+  renderModels();
   if (record.model) {
     const index = String(record.model).indexOf(":");
     if (index > 0) {
@@ -814,6 +842,7 @@ async function clearChat() {
   state.conversationId = null;
   $("messages").innerHTML = "";
   updateConvContext();
+  renderModels();
   try {
     localStorage.removeItem("aihub.conversation");
   } catch (exc) {
@@ -1008,6 +1037,7 @@ async function sendChat() {
     $("btn-send").disabled = false;
     $("btn-stop").hidden = true;
     await saveConversation();
+    renderModels();
   }
 }
 

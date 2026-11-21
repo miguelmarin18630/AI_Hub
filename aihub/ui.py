@@ -299,6 +299,7 @@ class MainWindow(tk.Tk):
         self.refreshing = False
         self.busy = False
         self.cancel_event = threading.Event()
+        self._cancelled = False
         self.proc = None
         self.last_path: Path | None = None
         self.touched_files: list[str] = []
@@ -630,17 +631,15 @@ class MainWindow(tk.Tk):
         self.search_entry.bind("<KeyPress>", self._search_key)
         self.search_var.trace_add("write", lambda *_: self._on_search_change())
 
-        self.filter_var = tk.StringVar(value="Todos")
-        self.filter_box = ttk.Combobox(
-            toolbar,
-            textvariable=self.filter_var,
-            values=["Todos", "Gratis", "De pago", "Favoritos"],
-            state="readonly",
-            width=9,
-            font=(FONT, 9),
-        )
-        self.filter_box.grid(row=1, column=0, sticky="ew", padx=(0, 4))
-        self.filter_box.bind("<<ComboboxSelected>>", lambda _e: self._render_list())
+        self.filter_var = tk.StringVar(value="Gratis")
+        tabs = tk.Frame(toolbar, bg=BG)
+        tabs.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 4))
+        self._filter_tabs: dict[str, tk.Button] = {}
+        for label in ("Gratis", "De pago", "Favoritos"):
+            btn = _button(tabs, label, lambda v=label: self._set_model_filter(v), kind="ghost", height=26, font_size=9)
+            btn.pack(side="left", padx=(0, 4))
+            self._filter_tabs[label] = btn
+        self._update_filter_tabs()
 
         self.sort_var = tk.StringVar(value="Precio ↑")
         self.sort_box = ttk.Combobox(
@@ -651,11 +650,11 @@ class MainWindow(tk.Tk):
             width=11,
             font=(FONT, 9),
         )
-        self.sort_box.grid(row=1, column=1, sticky="ew", padx=(4, 0))
+        self.sort_box.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 4))
         self.sort_box.bind("<<ComboboxSelected>>", lambda _e: self._render_list())
 
         self.model_box = ttk.Combobox(toolbar, state="readonly", font=(FONT, 9))
-        self.model_box.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        self.model_box.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(6, 0))
         self.model_box.bind("<<ComboboxSelected>>", self._on_model_box_select)
 
         # Título de sección de la tabla, con el número de modelos a la derecha
@@ -689,6 +688,7 @@ class MainWindow(tk.Tk):
         self.tree.tag_configure("paid", foreground=TEXT)
         self.tree.tag_configure("unknown", foreground=MUTED)
         self.tree.tag_configure("local", foreground=CYAN)
+        self.tree.tag_configure("disabled", foreground=DIM)
 
         scroll = ttk.Scrollbar(
             table_frame, orient="vertical", command=self.tree.yview, style="AIH.Vertical.TScrollbar"
@@ -856,6 +856,10 @@ class MainWindow(tk.Tk):
             btns, "Cómo funciona", self._open_how_it_works, kind="ghost", height=32, font_size=9
         )
         self.btn_howto.pack(side="right", padx=(0, 6))
+        self.btn_compact = _button(
+            btns, "Compactar", self._compact_history, kind="ghost", height=32, font_size=9
+        )
+        self.btn_compact.pack(side="right", padx=(0, 6))
 
         # Evita que los textos largos de la cabecera se monten sobre los botones.
         def _resize_conv_head(_event=None) -> None:
@@ -1045,7 +1049,7 @@ class MainWindow(tk.Tk):
             id_row, text="", bg=PANEL, fg=DIM, font=(MONO, 8), wraplength=190, justify="left", anchor="w"
         )
         self.detail_id.grid(row=0, column=0, sticky="w")
-        self.btn_copy_id = _button(id_row, "copiar", self._copy_id, kind="link", height=0, font_size=8)
+        self.btn_copy_id = _button(id_row, "Copiar ID", self._copy_id, kind="link", height=0, font_size=8)
         self.btn_copy_id.grid(row=0, column=1, sticky="e")
         self.btn_favorite = _button(id_row, "☆ Favorito", self._toggle_favorite, kind="link", height=0, font_size=8)
         self.btn_favorite.grid(row=0, column=2, sticky="e", padx=(6, 0))
@@ -1062,29 +1066,44 @@ class MainWindow(tk.Tk):
         )
         self.detail_desc.grid(row=5, column=0, sticky="ew", pady=(0, 8))
 
-        self.usage_box = tk.Frame(info, bg=PANEL_3, padx=10, pady=8)
-        self.usage_box.grid(row=6, column=0, sticky="ew", pady=(0, 8))
-        self.usage_box.columnconfigure(0, weight=1)
-        tk.Label(self.usage_box, text="CONSUMO", bg=PANEL_3, fg=DIM, font=(FONT, 7, "bold"), anchor="w").grid(
-            row=0, column=0, sticky="w"
+        self.conv_box = tk.Frame(info, bg=PANEL_3, padx=10, pady=8)
+        self.conv_box.grid(row=6, column=0, sticky="ew", pady=(0, 8))
+        self.conv_box.columnconfigure(0, weight=1)
+        self.conv_box.rowconfigure(2, weight=1)
+        tk.Label(self.conv_box, text="HISTORIAL DE CHAT", bg=PANEL_3, fg=DIM, font=(FONT, 7, "bold"), anchor="w").grid(
+            row=0, column=0, sticky="w", pady=(0, 4)
         )
-        self.usage_model = tk.Label(
-            self.usage_box, text="", bg=PANEL_3, fg=TEXT, font=(FONT, 8), anchor="w", justify="left", wraplength=220
+        self.conv_list = tk.Listbox(
+            self.conv_box,
+            bg=INPUT,
+            fg=TEXT,
+            selectbackground=ACCENT_SOFT,
+            selectforeground=TEXT,
+            relief="flat",
+            bd=0,
+            highlightthickness=0,
+            font=(FONT, 8),
+            height=6,
         )
-        self.usage_model.grid(row=1, column=0, sticky="ew", pady=(2, 4))
-        self.usage_quota = tk.Label(
-            self.usage_box, text="", bg=PANEL_3, fg=MUTED, font=(FONT, 8), anchor="w", justify="left", wraplength=220
-        )
-        self.usage_quota.grid(row=2, column=0, sticky="ew")
+        self.conv_list.grid(row=1, column=0, sticky="nsew", pady=(0, 4))
+        conv_scroll = ttk.Scrollbar(self.conv_box, orient="vertical", command=self.conv_list.yview, style="AIH.Vertical.TScrollbar")
+        conv_scroll.grid(row=1, column=1, sticky="ns", pady=(0, 4))
+        self.conv_list.configure(yscrollcommand=conv_scroll.set)
+        self.conv_list.bind("<Double-1>", lambda _e: self._open_selected_conversation())
+        cbtns = tk.Frame(self.conv_box, bg=PANEL_3)
+        cbtns.grid(row=2, column=0, columnspan=2, sticky="ew")
+        _button(cbtns, "Abrir", self._open_selected_conversation, kind="primary", height=24, font_size=8).pack(side="left", padx=(0, 4))
+        _button(cbtns, "Borrar", self._delete_selected_conversation, kind="danger", height=24, font_size=8).pack(side="left", padx=(0, 4))
+        _button(cbtns, "Nuevo", self._new_chat, kind="ghost", height=24, font_size=8).pack(side="left")
 
         actions = tk.Frame(info, bg=PANEL)
         actions.grid(row=7, column=0, sticky="ew")
         actions.columnconfigure(0, weight=1)
         self.btn_primary = _button(actions, "Usar modelo", self._primary_action, kind="primary", height=32, bold=True)
         self.btn_primary.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 5))
-        self.btn_secondary = _button(actions, "Copiar comando", self._secondary_action, kind="ghost", height=28, font_size=9)
+        self.btn_secondary = _button(actions, "Copiar comando (terminal)", self._secondary_action, kind="ghost", height=28, font_size=9)
         self.btn_secondary.grid(row=1, column=0, sticky="ew", padx=(0, 3))
-        self.btn_third = _button(actions, "Copiar ID", self._third_action, kind="ghost", height=28, font_size=9)
+        self.btn_third = _button(actions, "Copiar ID del modelo", self._third_action, kind="ghost", height=28, font_size=9)
         self.btn_third.grid(row=1, column=1, sticky="ew", padx=(3, 0))
 
         # Archivos de la carpeta de trabajo
@@ -1142,7 +1161,6 @@ class MainWindow(tk.Tk):
             width = max(200, event.width - 36)
             for widget in (
                 self.detail_name, self.detail_price_sub, self.detail_desc, self.touched_label,
-                self.usage_model, self.usage_quota,
             ):
                 widget.configure(wraplength=width)
             self.detail_id.configure(wraplength=max(150, width - 50))
@@ -1385,6 +1403,25 @@ class MainWindow(tk.Tk):
         if self.provider == "openrouter" and category == "media":
             self._ensure_image_prices()
 
+    def _model_context_disabled(self, model) -> bool:
+        """Un modelo gratuito no puede usarse si su ventana de contexto no alcanza
+        para la conversación actual (solo tiene sentido para modelos de chat)."""
+        if getattr(self, "category", "code") != "code":
+            return False
+        if getattr(self, "filter_var", None) is None or self.filter_var.get() != "Gratis":
+            return False
+        if not getattr(model, "free", False):
+            return False
+        try:
+            required = max(chat.history_tokens(self.history) + 1024, 2048)
+        except Exception:
+            required = 2048
+        try:
+            available = chat.context_limit_for(model)
+        except Exception:
+            available = 0
+        return available < required
+
     def _models_for_view(self) -> list[catalog.Model]:
         query = "" if self._placeholder_active else self.search_var.get()
         if self.filter_var.get() == "Favoritos":
@@ -1413,6 +1450,8 @@ class MainWindow(tk.Tk):
         index = self.model_box.current()
         if 0 <= index < len(self.visible):
             model = self.visible[index]
+            if self._model_context_disabled(model):
+                return
             if self.selected is None or (self.selected.uid, self.selected.provider) != (model.uid, model.provider):
                 self.selected = model
                 self._update_detail()
@@ -1432,6 +1471,8 @@ class MainWindow(tk.Tk):
         self.tree.column("name", width=max(100, width - price_w - 2), minwidth=100, stretch=True)
 
     def _render_list(self) -> None:
+        if hasattr(self, "_update_filter_tabs"):
+            self._update_filter_tabs()
         previous = self.selected
         models = self._models_for_view()
         self.visible = catalog.sort_models(models, self._sort_mode())
@@ -1460,6 +1501,8 @@ class MainWindow(tk.Tk):
                 tag = "unknown"
             else:
                 tag = "paid"
+            if self._model_context_disabled(model):
+                tag = "disabled"
             self.tree.insert(
                 "",
                 "end",
@@ -1485,17 +1528,25 @@ class MainWindow(tk.Tk):
             self._update_detail()
             return
 
-        first = self.tree.get_children()[0]
+        children = list(self.tree.get_children())
+        first_enabled = None
+        for child in children:
+            if "disabled" not in (self.tree.item(child, "tags") or ()):
+                first_enabled = child
+                break
+        first = first_enabled or (children[0] if children else None)
         current = self.tree.selection()
         wanted = None
         if previous and previous.provider == self.provider:
             for index, model in enumerate(self.visible):
                 if model.uid == previous.uid:
-                    wanted = self.tree.get_children()[index]
+                    candidate = children[index]
+                    if "disabled" not in (self.tree.item(candidate, "tags") or ()):
+                        wanted = candidate
                     break
         if wanted:
             target = wanted
-        elif current:
+        elif current and current[0] in children and "disabled" not in (self.tree.item(current[0], "tags") or ()):
             target = current[0]
         else:
             target = first
@@ -1538,7 +1589,7 @@ class MainWindow(tk.Tk):
                 text = "Configura tu clave de OpenRouter en Ajustes\npara usar la API y ver todos los modelos."
             if self.provider == "openrouter" and self.category == "media" and self.refreshing:
                 text = "Actualizando modelos de imagen y vídeo…\nLa primera vez tarda unos segundos."
-        elif query and price_filter != "Todos":
+        elif query:
             text = f'Ningún modelo coincide con «{query}» y el filtro «{price_filter}».'
             actions.append(("Quitar búsqueda y filtro", self._clear_filters))
         elif query:
@@ -1570,8 +1621,23 @@ class MainWindow(tk.Tk):
             ).pack(side="left", padx=(0, 6))
         self.empty_box.place(relx=0.5, rely=0.5, anchor="center")
 
+    def _set_model_filter(self, value: str) -> None:
+        self.filter_var.set(value)
+        self._update_filter_tabs()
+        self._render_list()
+
+    def _update_filter_tabs(self) -> None:
+        current = self.filter_var.get()
+        for label, btn in getattr(self, "_filter_tabs", {}).items():
+            active = label == current
+            btn.configure(
+                bg=ACCENT if active else PANEL_2,
+                fg="#ffffff" if active else MUTED,
+            )
+
     def _clear_filters(self) -> None:
-        self.filter_var.set("Todos")
+        self.filter_var.set("Gratis")
+        self._update_filter_tabs()
         self._placeholder_active = True
         self.search_var.set("")
         self.search_entry.delete(0, "end")
@@ -1592,6 +1658,13 @@ class MainWindow(tk.Tk):
         index = self.tree.index(selection[0])
         if 0 <= index < len(self.visible):
             model = self.visible[index]
+            if self._model_context_disabled(model):
+                # Modelo inactivo: no se puede usar con el contexto actual.
+                children = [c for c in self.tree.get_children() if "disabled" not in (self.tree.item(c, "tags") or ())]
+                if children:
+                    self.tree.selection_set(children[0])
+                    self.tree.focus(children[0])
+                return
             self.selected = model
             self._update_detail()
 
@@ -1916,13 +1989,16 @@ class MainWindow(tk.Tk):
         box = getattr(self, "usage_model", None)
         if box is None:
             return
+        quota = getattr(self, "usage_quota", None)
         model = self.selected
         if model is None:
             box.configure(text="Elige un modelo para ver su consumo.")
-            self.usage_quota.configure(text="")
+            if quota is not None:
+                quota.configure(text="")
             return
         box.configure(text=usage.describe(usage.get(model.provider, model.uid)))
-        self.usage_quota.configure(text="\n".join(self._provider_quota_lines(model.provider)))
+        if quota is not None:
+            quota.configure(text="\n".join(self._provider_quota_lines(model.provider)))
 
     def _refresh_files(self) -> None:
         """Lista el primer nivel de la carpeta de trabajo en el panel derecho."""
@@ -2028,6 +2104,13 @@ class MainWindow(tk.Tk):
     def _primary_action(self) -> None:
         model = self.selected
         if not model:
+            return
+        if (
+            self.filter_var.get() == "Gratis"
+            and model.free
+            and (model.context or 0) < max(chat.history_tokens(self.history) + 1024, 2048)
+        ):
+            self._set_status("Este modelo no tiene contexto suficiente para esta conversación.")
             return
         if model.provider in ("opencode", "claude"):
             self._launch_terminal(model)
@@ -2385,6 +2468,7 @@ class MainWindow(tk.Tk):
                 return
 
         self.cancel_event.clear()
+        self._cancelled = False
         self._set_busy(True)
         if model.category == "code":
             self._send_chat(model, prompt, extra_text, image_b64)
@@ -2421,6 +2505,7 @@ class MainWindow(tk.Tk):
             self._finish_error("Ollama no está en marcha.")
             return
 
+        self._auto_compact_if_needed(model)
         key = (model.provider, model.uid)
         # El historial se mantiene al cambiar de modelo o proveedor: solo se
         # reinicia con «Nuevo chat». Así se puede seguir la conversación.
@@ -2807,6 +2892,7 @@ class MainWindow(tk.Tk):
             pass
 
     def _stop(self) -> None:
+        self._cancelled = True
         self.cancel_event.set()
         if self.proc is not None:
             try:
@@ -2821,6 +2907,12 @@ class MainWindow(tk.Tk):
         if not busy:
             try:
                 self.prompt.focus_set()
+            except tk.TclError:
+                pass
+            # Mantén la respuesta visible tras terminar (el foco en el prompt
+            # puede desplazar la vista y ocultarla).
+            try:
+                self.after_idle(lambda: self.output.see("end"))
             except tk.TclError:
                 pass
         _set_enabled(self.btn_primary, not busy and self.selected is not None)
@@ -2875,9 +2967,37 @@ class MainWindow(tk.Tk):
         elif kind == "line":
             tag = message[2] if len(message) > 2 else "normal"
             self._out(str(message[1]) + "\n", tag)
+        elif kind == "compact_done":
+            summary = str(message[1])
+            # Conserva los dos últimos turnos para no perder el hilo reciente.
+            tail = self.history[-4:] if len(self.history) >= 4 else []
+            self.history = [{"role": "system", "content": f"Resumen de la conversación anterior:\n{summary}"}] + tail
+            self._pending_history = False
+            self._out(f"✓ Compactado · se conservan los últimos turnos\n", "ok")
+            self._update_conversation_header()
+            try:
+                self._render_list()
+            except Exception:
+                pass
+            self._set_busy(False)
+            try:
+                self._save_current_conversation()
+                self._save_conversation_state(include_current=True)
+            except Exception:
+                pass
         elif kind == "chat_done":
+            if self._cancelled:
+                self._cancelled = False
+                self._set_busy(False)
+                self._out("\n· cancelado\n", "dim")
+                return
             self._on_chat_done(message[1], message[2], message[3], message[4] if len(message) > 4 else None)
         elif kind == "agent_done":
+            if self._cancelled:
+                self._cancelled = False
+                self._set_busy(False)
+                self._out("\n· cancelado\n", "dim")
+                return
             self._on_agent_done(
                 message[1],
                 message[2],
@@ -2887,10 +3007,25 @@ class MainWindow(tk.Tk):
                 message[6] if len(message) > 6 else None,
             )
         elif kind == "image":
+            if self._cancelled:
+                self._cancelled = False
+                self._set_busy(False)
+                self._out("\n· cancelado\n", "dim")
+                return
             self._on_image(message[1], message[2], message[3], message[4] if len(message) > 4 else None)
         elif kind == "video":
+            if self._cancelled:
+                self._cancelled = False
+                self._set_busy(False)
+                self._out("\n· cancelado\n", "dim")
+                return
             self._on_video(message[1], message[2], message[3] if len(message) > 3 else None)
         elif kind == "error":
+            if self._cancelled:
+                self._cancelled = False
+                self._set_busy(False)
+                self._out("\n· cancelado\n", "dim")
+                return
             self._finish_error(str(message[1]))
         elif kind == "image_prices":
             self._render_list()
@@ -2924,6 +3059,10 @@ class MainWindow(tk.Tk):
             self.history.pop()
         self._pending_history = False
         self._update_conversation_header()
+        try:
+            self._render_list()
+        except Exception:
+            pass
         self._save_conversation_state(include_current=True)
 
     def _conversation_path(self) -> Path:
@@ -2948,6 +3087,10 @@ class MainWindow(tk.Tk):
             self._loaded_conversation = current
         else:
             self._loaded_conversation = None
+        try:
+            self._refresh_conversation_list()
+        except Exception:
+            pass
 
     def _save_current_conversation(self) -> None:
         if not self.history:
@@ -2996,6 +3139,10 @@ class MainWindow(tk.Tk):
             path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         except Exception:
             pass
+        try:
+            self._refresh_conversation_list()
+        except Exception:
+            pass
 
     def _render_loaded_conversation(self) -> None:
         current = getattr(self, "_loaded_conversation", None)
@@ -3007,16 +3154,16 @@ class MainWindow(tk.Tk):
             role = message.get("role")
             content = str(message.get("content") or "")
             if role == "user":
-                self._out(f"\\nTú · {stamp}\\n", "label_user")
-                self._out(f"{content}\\n", "user")
+                self._out(f"\nTú · {stamp}\n", "label_user")
+                self._out(f"{content}\n", "user")
             elif role == "tool" or not content.strip():
                 # Las trazas internas de herramientas no se repiten al recuperar.
                 continue
             else:
                 name = self.selected.name if self.selected is not None else "Asistente"
-                self._out(f"\\n{name} · {stamp}\\n", "label_model")
-                self._out(f"{content}\\n", "normal")
-        self._out("\\n(Conversación recuperada)\\n", "dim")
+                self._out(f"\n{name} · {stamp}\n", "label_model")
+                self._out(f"{content}\n", "normal")
+        self._out("\n(Conversación recuperada)\n", "dim")
         self._loaded_conversation = None
         self._update_conversation_header()
 
@@ -3083,6 +3230,63 @@ class MainWindow(tk.Tk):
             videos=videos,
         )
         self._update_usage_label()
+
+    def _conversation_list_items(self) -> list[dict]:
+        items = [dict(item) for item in self.conversations]
+        current = None
+        try:
+            data = json.loads(self._conversation_path().read_text(encoding="utf-8"))
+            current = data.get("current") if isinstance(data, dict) else None
+        except Exception:
+            current = None
+        if isinstance(current, dict) and current.get("messages"):
+            items = [current] + [item for item in items if item.get("id") != current.get("id")]
+        return items
+
+    def _refresh_conversation_list(self) -> None:
+        if not hasattr(self, "conv_list"):
+            return
+        self.conv_list.delete(0, "end")
+        self._conv_list_items = self._conversation_list_items()
+        for item in self._conv_list_items:
+            title = str(item.get("title") or "Chat sin título")
+            model = str(item.get("model") or "")
+            self.conv_list.insert("end", f"{title}  ·  {model}")
+
+    def _selected_conversation_index(self) -> int | None:
+        selection = self.conv_list.curselection()
+        if not selection:
+            return None
+        index = selection[0]
+        if 0 <= index < len(getattr(self, "_conv_list_items", [])):
+            return index
+        return None
+
+    def _open_selected_conversation(self) -> None:
+        if self.busy:
+            self._set_status("Espera a que termine la respuesta actual")
+            return
+        index = self._selected_conversation_index()
+        if index is None:
+            return
+        self._save_current_conversation()
+        self._save_conversation_state(include_current=True)
+        items = getattr(self, "_conv_list_items", [])
+        if 0 <= index < len(items):
+            self._load_conversation_record(items[index])
+            self._refresh_conversation_list()
+
+    def _delete_selected_conversation(self) -> None:
+        index = self._selected_conversation_index()
+        if index is None:
+            return
+        items = getattr(self, "_conv_list_items", [])
+        if not (0 <= index < len(items)):
+            return
+        target_id = items[index].get("id")
+        self.conversations = [item for item in self.conversations if item.get("id") != target_id]
+        self._save_conversation_state(include_current=True)
+        self._refresh_conversation_list()
 
     def _open_history(self) -> None:
         if self.busy:
@@ -3232,15 +3436,15 @@ class MainWindow(tk.Tk):
             role = message.get("role")
             content = str(message.get("content") or "")
             if role == "user":
-                self._out(f"\\nTú · {stamp}\\n", "label_user")
-                self._out(f"{content}\\n", "user")
+                self._out(f"\nTú · {stamp}\n", "label_user")
+                self._out(f"{content}\n", "user")
             elif role == "tool" or not content.strip():
                 continue
             else:
                 name = self.selected.name if self.selected is not None else "Asistente"
-                self._out(f"\\n{name} · {stamp}\\n", "label_model")
-                self._out(f"{content}\\n", "normal")
-        self._out("\\n(Conversación recuperada)\\n", "dim")
+                self._out(f"\n{name} · {stamp}\n", "label_model")
+                self._out(f"{content}\n", "normal")
+        self._out("\n(Conversación recuperada)\n", "dim")
         if self.history_key:
             provider, uid = self.history_key
             for models in self.catalogs.values():
@@ -3250,6 +3454,10 @@ class MainWindow(tk.Tk):
                         self._update_detail()
                         break
         self._update_conversation_header()
+        try:
+            self._render_list()
+        except Exception:
+            pass
         self._save_conversation_state(include_current=True)
 
     def _copy_output(self, _event=None):
@@ -3394,6 +3602,132 @@ class MainWindow(tk.Tk):
         self.output.see("end")
         self.output.configure(state="disabled")
 
+    def _auto_compact_if_needed(self, model: catalog.Model) -> None:
+        """Compacta automáticamente el historial cuando se acerca al límite de contexto."""
+        if model.provider in ("opencode", "claude"):
+            return
+        try:
+            limit = chat.context_limit_for(model)
+        except Exception:
+            return
+        try:
+            tokens = chat.history_tokens(self.history)
+        except Exception:
+            return
+        if len(self.history) < 6 or tokens < int(limit * 0.7):
+            return
+        lines = []
+        for item in self.history:
+            role = item.get("role")
+            content = str(item.get("content") or "").strip()
+            if not content or role == "tool":
+                continue
+            name = "Usuario" if role == "user" else ("Asistente" if role == "assistant" else str(role))
+            lines.append(f"{name}: {content}")
+        if not lines:
+            return
+        text = "\n\n".join(lines)
+        self._out("\n· compactando automáticamente para ahorrar contexto…\n", "dim")
+        prompt = (
+            "Resume la siguiente conversación en español, conservando datos, decisiones, "
+            "archivos mencionados y contexto importante, en no más de 250 palabras. "
+            "Devuelve solo el resumen.\n\nCONVERSACIÓN:\n" + text
+        )
+        result: dict = {"summary": None}
+
+        def work() -> None:
+            try:
+                if model.provider == "ollama":
+                    payload = {"model": model.uid, "messages": [{"role": "user", "content": prompt}], "stream": False}
+                    data = api.request_json(f"{api.OLLAMA}/api/chat", payload, timeout=300)
+                    result["summary"] = str((data.get("message") or {}).get("content") or "").strip()
+                else:
+                    base, key = self._api_endpoint(model.provider)
+                    payload = {"model": model.uid, "messages": [{"role": "user", "content": prompt}], "stream": False}
+                    data = api.request_json(f"{base.rstrip('/')}/chat/completions", payload, key, timeout=300)
+                    choices = data.get("choices") or []
+                    if choices:
+                        result["summary"] = str((choices[0].get("message") or {}).get("content") or "").strip()
+            except Exception:
+                result["summary"] = None
+
+        done = threading.Event()
+        def runner() -> None:
+            work()
+            done.set()
+        threading.Thread(target=runner, daemon=True).start()
+        while not done.is_set():
+            try:
+                self.update()
+            except tk.TclError:
+                break
+            time.sleep(0.05)
+        summary = result.get("summary")
+        if not summary:
+            return
+        tail = self.history[-4:] if len(self.history) >= 4 else []
+        self.history = [{"role": "system", "content": f"Resumen de la conversación anterior:\n{summary}"}] + tail
+        self._pending_history = False
+        self._update_conversation_header()
+        try:
+            self._render_list()
+        except Exception:
+            pass
+        self._out("✓ Compactado automáticamente\n", "ok")
+
+    def _compact_history(self) -> None:
+        if self.busy:
+            self._set_status("Espera a que termine la respuesta actual")
+            return
+        if len(self.history) < 4:
+            self._out("\nNo hay suficiente historial para compactar.\n", "dim")
+            return
+        model = self.selected
+        if model is None:
+            self._out("\nElige un modelo para compactar.\n", "dim")
+            return
+        lines = []
+        for item in self.history:
+            role = item.get("role")
+            content = str(item.get("content") or "").strip()
+            if not content or role == "tool":
+                continue
+            name = "Usuario" if role == "user" else ("Asistente" if role == "assistant" else str(role))
+            lines.append(f"{name}: {content}")
+        text = "\n\n".join(lines)
+        self._set_busy(True)
+        self._out("\n· compactando conversación…\n", "dim")
+
+        def work() -> None:
+            try:
+                prompt = (
+                    "Resume la siguiente conversación en español, conservando datos, decisiones, "
+                    "archivos mencionados y contexto importante, en no más de 250 palabras. "
+                    "Devuelve solo el resumen.\n\nCONVERSACIÓN:\n" + text
+                )
+                if model.provider in ("opencode", "claude"):
+                    self.q.put(("error", "Compactar no está disponible para modelos CLI."))
+                    return
+                if model.provider == "ollama":
+                    payload = {"model": model.uid, "messages": [{"role": "user", "content": prompt}], "stream": False}
+                    data = api.request_json(f"{api.OLLAMA}/api/chat", payload, timeout=300)
+                    summary = str((data.get("message") or {}).get("content") or "").strip()
+                else:
+                    base, key = self._api_endpoint(model.provider)
+                    payload = {"model": model.uid, "messages": [{"role": "user", "content": prompt}], "stream": False}
+                    data = api.request_json(f"{base.rstrip('/')}/chat/completions", payload, key, timeout=300)
+                    choices = data.get("choices") or []
+                    summary = ""
+                    if choices:
+                        summary = str((choices[0].get("message") or {}).get("content") or "").strip()
+                if not summary:
+                    raise RuntimeError("El modelo no devolvió resumen.")
+                self.q.put(("compact_done", summary))
+            except Exception as exc:  # noqa: BLE001
+                self.q.put(("error", str(exc)))
+
+        threading.Thread(target=work, daemon=True).start()
+
     def _new_chat(self, reset_prompt: bool = False) -> None:
         if self.busy:
             self._set_status("Espera a que termine la respuesta actual")
@@ -3412,6 +3746,10 @@ class MainWindow(tk.Tk):
         self._clear_output()
         self._refresh_touched()
         self._update_conversation_header()
+        try:
+            self._render_list()
+        except Exception:
+            pass
         self._set_status("Chat nuevo")
         self._save_conversation_state(include_current=False)
 
@@ -3961,27 +4299,57 @@ class MainWindow(tk.Tk):
         container = tk.Frame(win, bg=BG, padx=24, pady=18)
         container.pack(fill="both", expand=True)
         container.columnconfigure(0, weight=1)
+        container.rowconfigure(1, weight=1)
 
         tk.Label(container, text="Añadir proveedor", bg=BG, fg=TEXT, font=(FONT, 16, "bold")).grid(
             row=0, column=0, sticky="w"
         )
+
+        # Área desplazable para que el contenido (campos + proveedores conectados)
+        # quepa aunque la ventana sea pequeña o haya muchos proveedores.
+        canvas = tk.Canvas(container, bg=BG, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview, style="AIH.Vertical.TScrollbar")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.grid(row=1, column=0, sticky="nsew", pady=(2, 0))
+        scrollbar.grid(row=1, column=1, sticky="ns", pady=(2, 0))
+        container.columnconfigure(1, weight=0)
+
+        body = tk.Frame(canvas, bg=BG)
+        body.columnconfigure(0, weight=1)
+        _body_window = canvas.create_window((0, 0), window=body, anchor="nw")
+
+        def _on_body_configure(_event=None) -> None:
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def _on_canvas_configure(event) -> None:
+            canvas.itemconfigure(canvas.find_withtag("all")[0] if False else "all", width=event.width)
+
+        body.bind("<Configure>", _on_body_configure)
+        canvas.bind("<Configure>", lambda e: canvas.itemconfig(_body_window, width=e.width))
+
+        def _on_wheel(event) -> None:
+            canvas.yview_scroll(int(-event.delta / 120), "units")
+
+        canvas.bind("<MouseWheel>", _on_wheel)
+        body.bind("<MouseWheel>", _on_wheel)
+
         tk.Label(
-            container,
+            body,
             text="Conecta tu cuenta. Sus modelos aparecen en la pestaña que les corresponda.",
             bg=BG, fg=MUTED, font=(FONT, 9),
-        ).grid(row=1, column=0, sticky="w", pady=(2, 12))
+        ).grid(row=0, column=0, sticky="w", pady=(0, 12))
 
         presets = {item["name"]: item for item in custom.PRESETS}
-        tk.Label(container, text="PROVEEDOR", bg=BG, fg=DIM, font=(FONT, 8, "bold")).grid(row=2, column=0, sticky="w")
+        tk.Label(body, text="PROVEEDOR", bg=BG, fg=DIM, font=(FONT, 8, "bold")).grid(row=1, column=0, sticky="w")
         preset_var = tk.StringVar(value=custom.PRESETS[0]["name"])
-        box = ttk.Combobox(container, values=list(presets), state="readonly", textvariable=preset_var, font=(FONT, 9))
-        box.grid(row=3, column=0, sticky="ew", pady=(4, 2))
-        help_label = tk.Label(container, text="", bg=BG, fg=DIM, font=(FONT, 8), wraplength=580, justify="left", anchor="w")
-        help_label.grid(row=4, column=0, sticky="ew", pady=(0, 8))
+        box = ttk.Combobox(body, values=list(presets), state="readonly", textvariable=preset_var, font=(FONT, 9))
+        box.grid(row=2, column=0, sticky="ew", pady=(4, 2))
+        help_label = tk.Label(body, text="", bg=BG, fg=DIM, font=(FONT, 8), wraplength=580, justify="left", anchor="w")
+        help_label.grid(row=3, column=0, sticky="ew", pady=(0, 8))
 
         def field(row: int, title: str, var: tk.StringVar, show: str = "") -> tk.Entry:
-            tk.Label(container, text=title, bg=BG, fg=DIM, font=(FONT, 8, "bold")).grid(row=row * 2 + 0, column=0, sticky="w")
-            frame = tk.Frame(container, bg=INPUT, highlightbackground=BORDER, highlightthickness=1)
+            tk.Label(body, text=title, bg=BG, fg=DIM, font=(FONT, 8, "bold")).grid(row=row * 2 + 0, column=0, sticky="w")
+            frame = tk.Frame(body, bg=INPUT, highlightbackground=BORDER, highlightthickness=1)
             frame.grid(row=row * 2 + 1, column=0, sticky="ew", pady=(3, 8))
             entry = tk.Entry(
                 frame, textvariable=var, show=show, bg=INPUT, fg=TEXT, insertbackground=TEXT,
@@ -3997,7 +4365,7 @@ class MainWindow(tk.Tk):
         field(4, "URL BASE", base_var)
         field(5, "CLAVE DE API", key_var, show="•")
 
-        status = tk.Label(container, text="", bg=BG, fg=MUTED, font=(FONT, 8), wraplength=580, justify="left", anchor="w")
+        status = tk.Label(body, text="", bg=BG, fg=MUTED, font=(FONT, 8), wraplength=580, justify="left", anchor="w")
         status.grid(row=12, column=0, sticky="ew", pady=(0, 8))
 
         def apply_preset(_event=None) -> None:
@@ -4010,17 +4378,18 @@ class MainWindow(tk.Tk):
         box.bind("<<ComboboxSelected>>", apply_preset)
         apply_preset()
 
+        # Botones fijos abajo (fuera del área desplazable)
         buttons = tk.Frame(container, bg=BG)
-        buttons.grid(row=13, column=0, sticky="ew")
+        buttons.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(12, 0))
         connect_btn = _button(buttons, "Conectar", lambda: connect(), kind="primary", height=34, bold=True)
         connect_btn.pack(side="right")
         _button(buttons, "Cerrar", win.destroy, kind="ghost", height=34).pack(side="right", padx=(0, 8))
 
-        tk.Label(container, text="PROVEEDORES CONECTADOS", bg=BG, fg=DIM, font=(FONT, 8, "bold")).grid(
-            row=14, column=0, sticky="w", pady=(18, 6)
+        tk.Label(body, text="PROVEEDORES CONECTADOS", bg=BG, fg=DIM, font=(FONT, 8, "bold")).grid(
+            row=13, column=0, sticky="w", pady=(18, 6)
         )
-        listing = tk.Frame(container, bg=BG)
-        listing.grid(row=15, column=0, sticky="ew")
+        listing = tk.Frame(body, bg=BG)
+        listing.grid(row=14, column=0, sticky="ew")
         listing.columnconfigure(0, weight=1)
 
         def fill_listing() -> None:
