@@ -114,27 +114,99 @@ function openModal(html) {
   overlay.addEventListener("mousedown", (event) => {
     if (event.target === overlay) closeModal();
   });
+  root.querySelectorAll("[data-close]").forEach((btn) => {
+    btn.addEventListener("click", closeModal);
+  });
 }
 
 function closeModal() {
   $("modal-root").innerHTML = "";
 }
 
-function markdown(text) {
-  let html = esc(text || "");
-  html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, (_m, lang, code) => {
-    return `<pre><code>${code.replace(/\n$/, "")}</code></pre>`;
+function confirmModal(title, message, confirmLabel = "Confirmar", danger = false) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.style.zIndex = "85";
+    overlay.innerHTML = `
+      <div class="modal dialog-modal">
+        <div class="modal-head"><h2>${esc(title)}</h2><button class="icon-btn" data-dialog-cancel>✕</button></div>
+        <p class="dialog-message">${esc(message)}</p>
+        <div class="modal-actions">
+          <button class="btn ghost" data-dialog-cancel>Cancelar</button>
+          <button class="btn ${danger ? "danger" : "primary"}" data-dialog-ok>${esc(confirmLabel)}</button>
+        </div>
+      </div>`;
+    const finish = (val) => {
+      overlay.remove();
+      resolve(val);
+    };
+    overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) finish(false); });
+    overlay.querySelectorAll("[data-dialog-cancel]").forEach((b) => b.addEventListener("click", () => finish(false)));
+    overlay.querySelector("[data-dialog-ok]").addEventListener("click", () => finish(true));
+    document.body.appendChild(overlay);
+    overlay.querySelector("[data-dialog-ok]").focus();
   });
+}
+
+function promptModal(title, message, defaultValue = "", inputType = "text", placeholder = "") {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.style.zIndex = "85";
+    overlay.innerHTML = `
+      <div class="modal dialog-modal">
+        <div class="modal-head"><h2>${esc(title)}</h2><button class="icon-btn" data-dialog-cancel>✕</button></div>
+        <p class="dialog-message">${esc(message)}</p>
+        <input class="dialog-input" type="${esc(inputType)}" value="${esc(defaultValue)}" placeholder="${esc(placeholder)}" autocomplete="off">
+        <div class="modal-actions">
+          <button class="btn ghost" data-dialog-cancel>Cancelar</button>
+          <button class="btn primary" data-dialog-ok>Aceptar</button>
+        </div>
+      </div>`;
+    const input = overlay.querySelector(".dialog-input");
+    const finish = (val) => {
+      overlay.remove();
+      resolve(val);
+    };
+    overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) finish(null); });
+    overlay.querySelectorAll("[data-dialog-cancel]").forEach((b) => b.addEventListener("click", () => finish(null)));
+    overlay.querySelector("[data-dialog-ok]").addEventListener("click", () => finish(input.value));
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); finish(input.value); }
+      if (e.key === "Escape") { e.preventDefault(); finish(null); }
+    });
+    document.body.appendChild(overlay);
+    input.focus();
+    input.select();
+  });
+}
+
+function markdown(text) {
+  const blocks = [];
+  const raw = String(text || "").replace(/```([a-zA-Z0-9_+-]*)\n?([\s\S]*?)```/g, (_m, lang, code) => {
+    const cleaned = code.replace(/\n$/, "");
+    const idx = blocks.length;
+    blocks.push(
+      `<div class="code-block"><div class="code-bar"><span>${esc(lang || "código")}</span><button type="button" class="msg-copy-btn code-copy-btn">Copiar</button></div><pre><code>${esc(cleaned)}</code></pre></div>`
+    );
+    return `\u0000CODEBLOCK_${idx}\u0000`;
+  });
+  let html = esc(raw);
+  html = html.replace(/^###\s+(.*)$/gm, "<h4>$1</h4>");
+  html = html.replace(/^##?\s+(.*)$/gm, "<h3>$1</h3>");
   html = html.replace(/`([^`\n]+)`/g, "<code>$1</code>");
   html = html.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
   html = html.replace(/__([^_\n]+)__/g, "<strong>$1</strong>");
-  html = html.replace(/^\s*-\s+(.*)$/gm, "• $1");
+  html = html.replace(/^\s*[-*]\s+(.*)$/gm, "• $1");
   html = html.replace(/\n/g, "<br>");
+  html = html.replace(/\u0000CODEBLOCK_(\d+)\u0000/g, (_m, idx) => blocks[Number(idx)] || "");
   return html;
 }
 
 async function api(path, options = {}) {
   const opts = { method: options.method || "GET", credentials: "same-origin", headers: {} };
+  if (options.signal) opts.signal = options.signal;
   if (options.body !== undefined) {
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(options.body);
@@ -290,6 +362,19 @@ function bindEvents() {
     state.search = event.target.value.trim().toLowerCase();
     renderModels();
   }, 150));
+  $("search").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      const first = $("model-list").querySelector(".model-row:not(.disabled)");
+      if (first) {
+        event.preventDefault();
+        const model = state.models.find((item) => item.uid === first.dataset.uid && item.provider === first.dataset.provider);
+        if (model) {
+          selectModel(model);
+          $("prompt")?.focus();
+        }
+      }
+    }
+  });
 
   $("filter").addEventListener("change", (event) => {
     state.filter = event.target.value;
@@ -338,6 +423,28 @@ function bindEvents() {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       sendChat();
+    }
+  });
+  $("prompt").addEventListener("input", (event) => {
+    const el = event.target;
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 180) + "px";
+  });
+  $("messages").addEventListener("click", (event) => {
+    const codeBtn = event.target.closest(".code-copy-btn");
+    if (codeBtn) {
+      const code = codeBtn.closest(".code-block")?.querySelector("code")?.textContent || "";
+      copyText(code);
+      return;
+    }
+    const msgBtn = event.target.closest("[data-copy-msg]");
+    if (msgBtn) {
+      const msg = msgBtn.closest(".msg");
+      copyText(msg?.dataset.raw || msg?.querySelector(".msg-body")?.textContent || "");
+      return;
+    }
+    if (event.target.closest(".error-open-settings")) {
+      openSettings("main");
     }
   });
   $("btn-stop").addEventListener("click", () => {
@@ -439,6 +546,12 @@ async function loadCatalog() {
   renderProjectChip();
   if (!state.models.length) {
     await refreshCatalog(false);
+  }
+  if (!state.selected && state.models.length) {
+    const first = state.models.find((item) => item.category === "code" && item.free)
+      || state.models.find((item) => item.category === "code")
+      || state.models[0];
+    if (first) selectModel(first, false);
   }
 }
 
@@ -717,8 +830,12 @@ function addMessage(kind, text) {
   const item = document.createElement("div");
   item.className = "msg " + kind;
   if (kind === "user" || kind === "assistant") {
-    item.innerHTML = `<div class="msg-body"></div>`;
+    item.dataset.raw = text || "";
+    item.innerHTML = `<div class="msg-body"></div>` +
+      (kind === "assistant" && text ? `<div class="msg-actions"><button type="button" class="msg-copy-btn" data-copy-msg>Copiar</button></div>` : "");
     item.querySelector(".msg-body").innerHTML = kind === "user" ? esc(text) : markdown(text);
+  } else if (kind === "error" && /ajustes|clave/i.test(String(text || ""))) {
+    item.innerHTML = `<span>${esc(text)}</span><button type="button" class="btn ghost mini error-action error-open-settings">Abrir Ajustes</button>`;
   } else {
     item.textContent = text;
   }
@@ -907,7 +1024,13 @@ async function openHistory() {
   });
   $("modal-root").querySelectorAll("[data-remove]").forEach((button) => {
     button.addEventListener("click", async () => {
-      if (!confirm("¿Borrar esta conversación del historial?")) return;
+      const ok = await confirmModal(
+        "Borrar conversación",
+        "¿Borrar esta conversación del historial?",
+        "Borrar",
+        true
+      );
+      if (!ok) return;
       try {
         await api("/api/history/delete", { method: "POST", body: { id: button.dataset.remove } });
         if (state.conversationId === button.dataset.remove) {
@@ -1016,18 +1139,27 @@ async function sendChat() {
     }
     if (answer.trim()) {
       state.messages.push({ role: "assistant", content: answer });
+      assistant.dataset.raw = answer;
       body.innerHTML = markdown(answer);
-    } else if (!state.messages.some((item) => item.role === "assistant")) {
+      const actions = document.createElement("div");
+      actions.className = "msg-actions";
+      actions.innerHTML = `<button type="button" class="msg-copy-btn" data-copy-msg>Copiar</button>`;
+      assistant.appendChild(actions);
+    } else {
       assistant.remove();
     }
   } catch (exc) {
     if (exc.name !== "AbortError") {
+      if (!answer.trim()) assistant.remove();
       addMessage("error", exc.message);
       $("chat-status").textContent = "";
     } else {
       if (answer.trim()) {
         state.messages.push({ role: "assistant", content: answer });
+        assistant.dataset.raw = answer;
         body.innerHTML = markdown(answer);
+      } else {
+        assistant.remove();
       }
       $("chat-status").textContent = "Detenido.";
     }
@@ -1064,9 +1196,9 @@ async function generate() {
     if (model.category === "video") {
       payload.duration = $("gen-duration").value ? Number($("gen-duration").value) : null;
       payload.resolution = $("gen-resolution").value || null;
-      data = await api("/api/video", { method: "POST", body: payload });
+      data = await api("/api/video", { method: "POST", body: payload, signal: state.controller.signal });
     } else {
-      data = await api("/api/image", { method: "POST", body: payload });
+      data = await api("/api/image", { method: "POST", body: payload, signal: state.controller.signal });
     }
     const note = data.cost ? ` · coste $${Number(data.cost).toFixed(6)}` : "";
     $("gen-result").innerHTML =
@@ -1076,7 +1208,11 @@ async function generate() {
       `<div class="gen-note">Generado${note}</div>`;
     loadUsage();
   } catch (exc) {
-    $("gen-result").innerHTML = `<span class="gen-note" style="color:var(--red)">${esc(exc.message)}</span>`;
+    if (exc.name === "AbortError") {
+      $("gen-result").innerHTML = `<span class="gen-note">Generación cancelada.</span>`;
+    } else {
+      $("gen-result").innerHTML = `<span class="gen-note" style="color:var(--red)">${esc(exc.message)}</span>`;
+    }
   } finally {
     state.generating = false;
     state.controller = null;
@@ -1224,8 +1360,15 @@ $("file-list")?.addEventListener?.("click", async (event) => {
   try {
     const data = await api(`/api/file?project=${encodeURIComponent(state.project)}&path=${encodeURIComponent(row.dataset.path)}`);
     openModal(`
-      <div class="modal-head"><h2>${esc(data.path)}</h2><button class="icon-btn" data-close>Cerrar ✕</button></div>
+      <div class="modal-head">
+        <h2>${esc(data.path)}</h2>
+        <div class="user-actions">
+          <button class="btn ghost small" id="btn-copy-file">Copiar</button>
+          <button class="icon-btn" data-close>Cerrar ✕</button>
+        </div>
+      </div>
       <section class="file-viewer"><pre>${esc(data.text)}</pre></section>`);
+    $("btn-copy-file")?.addEventListener("click", () => copyText(data.text));
   } catch (exc) {
     toast(exc.message, "error");
   }
@@ -1298,6 +1441,7 @@ async function openSettings(tab = "main") {
         <input id="custom-base" type="text" placeholder="URL base (p. ej. https://api.openai.com/v1)">
         <input id="custom-key" type="password" placeholder="Clave" autocomplete="off">
       </div>
+      <p id="preset-help" class="hint"></p>
       <div class="modal-row">
         <label class="check"><input type="checkbox" id="cat-code" checked> Programación</label>
         <label class="check"><input type="checkbox" id="cat-media"> Imagen y vídeo</label>
@@ -1311,7 +1455,10 @@ async function openSettings(tab = "main") {
           <strong>Datos</strong>
           <div class="usage-dim">${dataLabel}</div>
         </div>
-        ${state.user.role === "admin" ? `<button id="btn-link-desktop" class="btn ghost small">${me.desktop ? "Separar del escritorio" : "Vincular con el escritorio"}</button>` : ""}
+        <div class="user-actions">
+          <button id="btn-clear-usage" class="btn ghost small">Reiniciar consumo</button>
+          ${state.user.role === "admin" ? `<button id="btn-link-desktop" class="btn ghost small">${me.desktop ? "Separar del escritorio" : "Vincular con el escritorio"}</button>` : ""}
+        </div>
       </div>
       <p class="hint">Al vincular, esta cuenta usa el mismo historial, claves, favoritos y carpetas que la app de escritorio de este equipo.</p>
       <div class="modal-row">
@@ -1340,10 +1487,24 @@ async function openSettings(tab = "main") {
   if (tab === "account") $("pw-current")?.focus();
 
   const root = $("modal-root");
-  root.querySelector("[data-close]").addEventListener("click", closeModal);
+  const syncPreset = () => {
+    const presetObj = (settings.presets || []).find((p) => p.id === $("preset").value);
+    if (!presetObj) return;
+    $("custom-name").value = presetObj.id === "custom" ? "" : presetObj.name;
+    $("custom-base").value = presetObj.base || "";
+    $("preset-help").textContent = presetObj.help || "";
+  };
+  $("preset").addEventListener("change", syncPreset);
+  syncPreset();
+
   root.querySelector("#btn-save-key").addEventListener("click", async () => {
+    const key = $("openrouter-key").value.trim();
+    if (!key) {
+      toast("Pega una clave para guardarla (o pulsa Quitar para borrarla).", "error");
+      return;
+    }
     try {
-      await api("/api/settings", { method: "POST", body: { openrouter_api_key: $("openrouter-key").value } });
+      await api("/api/settings", { method: "POST", body: { openrouter_api_key: key } });
       toast("Clave guardada.", "ok");
       await openSettings("main");
     } catch (exc) { toast(exc.message, "error"); }
@@ -1357,15 +1518,33 @@ async function openSettings(tab = "main") {
   });
   root.querySelector("#btn-check-key").addEventListener("click", async () => {
     const key = $("openrouter-key").value.trim();
-    if (!key) { toast("Pega una clave para comprobarla.", "error"); return; }
     try {
-      const data = await api("/api/settings", { method: "POST", body: { openrouter_api_key: key } });
-      void data;
+      if (key) {
+        await api("/api/settings", { method: "POST", body: { openrouter_api_key: key } });
+      }
       const result = await api("/api/check", { method: "POST", body: {} });
+      if (!result.ok) {
+        throw new Error(result.message || "Clave de OpenRouter no válida.");
+      }
       const bits = ["Clave válida"];
       if (result.free_remaining != null) bits.push(`${result.free_remaining} gratis hoy`);
-      if (result.remaining != null) bits.push(`saldo $${result.remaining}`);
+      if (result.credits != null) bits.push(`créditos $${result.credits}`);
+      else if (result.remaining != null) bits.push(`saldo $${result.remaining}`);
       toast(bits.join(" · "), "ok");
+    } catch (exc) { toast(exc.message, "error"); }
+  });
+  root.querySelector("#btn-clear-usage").addEventListener("click", async () => {
+    const ok = await confirmModal(
+      "Reiniciar consumo",
+      "¿Poner a cero los contadores de consumo guardados en esta cuenta?",
+      "Reiniciar",
+      true
+    );
+    if (!ok) return;
+    try {
+      await api("/api/settings", { method: "POST", body: { clear_usage: true } });
+      toast("Consumo reiniciado.", "ok");
+      loadUsage();
     } catch (exc) { toast(exc.message, "error"); }
   });
   root.querySelector("#btn-add-provider").addEventListener("click", async () => {
@@ -1394,12 +1573,15 @@ async function openSettings(tab = "main") {
       closeModal();
     } catch (exc) { toast(exc.message, "error"); }
   });
-  root.querySelector("#btn-add-user").addEventListener("click", async () => {
+  root.querySelector("#btn-add-user")?.addEventListener("click", async () => {
     try {
+      const displayName = $("new-user-name").value.trim();
+      const username = $("new-user-id").value.trim();
       await api("/api/admin/users", {
         method: "POST",
         body: {
-          name: $("new-user-id").value.trim() || $("new-user-name").value.trim(),
+          name: displayName || username,
+          username,
           password: $("new-user-password").value,
           role: $("new-user-admin").checked ? "admin" : "user",
         },
@@ -1413,7 +1595,12 @@ async function openSettings(tab = "main") {
     const question = link
       ? "¿Vincular esta cuenta con la app de escritorio? Compartirá historial, claves, favoritos y carpetas."
       : "¿Separar esta cuenta del escritorio? Volverá a usar su carpeta propia de la web (los datos del escritorio no se borran).";
-    if (!confirm(question)) return;
+    const ok = await confirmModal(
+      link ? "Vincular con el escritorio" : "Separar del escritorio",
+      question,
+      link ? "Vincular" : "Separar"
+    );
+    if (!ok) return;
     try {
       await api("/api/admin/users/data", {
         method: "POST",
@@ -1427,12 +1614,12 @@ async function openSettings(tab = "main") {
     const dataUser = event.target.closest("[data-user-data]");
     if (dataUser) {
       const current = dataUser.dataset.dir || "";
-      const value = prompt(
-        "Carpeta de datos para este usuario:\n\n" +
-        "· Vacío: carpeta propia de la web\n" +
-        "· __desktop__: app de escritorio de este equipo\n" +
-        "· O una ruta absoluta, por ejemplo C:\\\\Proyectos",
-        current
+      const value = await promptModal(
+        "Carpeta de datos",
+        "· Vacío: carpeta propia de la web\n· __desktop__: carpeta compartida del servidor\n· O una ruta absoluta existente",
+        current,
+        "text",
+        "Vacío, __desktop__ o ruta absoluta"
       );
       if (value === null) return;
       try {
@@ -1463,7 +1650,13 @@ async function openSettings(tab = "main") {
     }
     const resetUser = event.target.closest("[data-reset-user]");
     if (resetUser) {
-      const password = prompt("Nueva contraseña para " + resetUser.dataset.resetUser + " (mínimo 8):");
+      const password = await promptModal(
+        "Cambiar contraseña",
+        "Nueva contraseña para " + resetUser.dataset.resetUser + " (mínimo 8 caracteres):",
+        "",
+        "password",
+        "Mínimo 8 caracteres"
+      );
       if (!password) return;
       try {
         await api("/api/admin/users/password", { method: "POST", body: { id: resetUser.dataset.resetUser, password } });
@@ -1473,7 +1666,13 @@ async function openSettings(tab = "main") {
     }
     const deleteUser = event.target.closest("[data-delete-user]");
     if (deleteUser) {
-      if (!confirm("¿Borrar este usuario? Sus proyectos y claves se conservarán en disco.")) return;
+      const ok = await confirmModal(
+        "Borrar usuario",
+        "¿Borrar este usuario? Sus proyectos y claves se conservarán en disco.",
+        "Borrar",
+        true
+      );
+      if (!ok) return;
       try {
         await api("/api/admin/users/delete", { method: "POST", body: { id: deleteUser.dataset.deleteUser } });
         await openSettings("admin");
